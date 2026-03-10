@@ -23,7 +23,11 @@ const MATCAPS_URLS: Record<string, string> = {
 interface PaintableMeshProps {
   brushSettings: BrushSettings;
   modelParts: any[];
-  activePartId: string | null;
+  modelTransform: {
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  };
   onTextureChange?: (texture: THREE.Texture | null, previewCanvas?: HTMLCanvasElement) => void;
   showWireframe?: boolean;
   flatShading?: boolean;
@@ -39,7 +43,7 @@ interface PaintableMeshProps {
 export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   brushSettings,
   modelParts,
-  activePartId,
+  modelTransform,
   onTextureChange,
   showWireframe = false,
   flatShading = false,
@@ -51,12 +55,9 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   onPaintingChange,
   onLayerControlsReady,
 }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const { camera, gl } = useThree();
-  const raycaster = useRef(new THREE.Raycaster());
-  const mouse = useRef(new THREE.Vector2());
+  const groupRef = useRef<THREE.Group>(null);
+  const { camera, gl, size } = useThree();
   const pointerRafRef = useRef<number>(0);
-  const pointerEventData = useRef<{ event: React.PointerEvent<THREE.Mesh>, isDown: boolean } | null>(null);
   const [cursor, setCursor] = useState<{ point: THREE.Vector3; normal: THREE.Vector3; radius: number } | null>(null);
   
   const { 
@@ -65,8 +66,9 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     previewCanvas,
     layers, activeLayerId, addLayer, removeLayer, updateLayer, setLayerActive, moveLayer, clearCanvas, fillCanvas, undo, redo, exportTexture
   } = useWebGLPaint(
-    meshRef,
-     brushSettings
+    groupRef,
+     brushSettings,
+     [modelParts]
   );
 
   useEffect(() => {
@@ -102,90 +104,91 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
 
   // Update material when texture or material props change
   useEffect(() => {
-    if (meshRef.current) {
-      if (matcapName && matcapTexture) {
-          meshRef.current.material = new THREE.MeshMatcapMaterial({
-           matcap: matcapTexture,
-           map: texture || null,
-           flatShading: flatShading,
-           color: objectColor
-         });
-      } else {
-         meshRef.current.material = new THREE.MeshStandardMaterial({
-           map: texture || null,
-           roughness: roughness,
-           metalness: metalness,
-           flatShading: flatShading,
-           color: objectColor
-         });
-      }
+    if (groupRef.current) {
+      const newMaterial = (matcapName && matcapTexture)
+        ? new THREE.MeshMatcapMaterial({ matcap: matcapTexture, map: texture || null, flatShading, color: objectColor })
+        : new THREE.MeshStandardMaterial({ map: texture || null, roughness, metalness, flatShading, color: objectColor });
+
+      groupRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = newMaterial;
+        }
+      });
     }
   }, [texture, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness]);
 
-  const updateCursor = useCallback((intersects: THREE.Intersection[]) => {
-    if (intersects.length > 0) {
-      const hit = intersects[0];
+  const updateCursor = useCallback((hit: THREE.Intersection | undefined, pressure: number = 1.0) => {
+    if (hit) {
       const dist = camera.position.distanceTo(hit.point);
-      const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
-      const worldHeight = 2 * dist * Math.tan(fov / 2);
-      const radius = (brushSettings.size / window.innerHeight) * worldHeight * 0.5;
+      let radius = 0.1;
+      const dynamicSize = brushSettings.size * Math.max(0.05, pressure);
+
+      if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+        const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+        const worldHeight = 2 * dist * Math.tan(fov / 2);
+        radius = (dynamicSize / size.height) * worldHeight * 0.5;
+      } else {
+        const ortho = camera as THREE.OrthographicCamera;
+        const worldHeight = ortho.top - ortho.bottom;
+        radius = (dynamicSize / size.height) * worldHeight * 0.5;
+      }
 
       const normal = hit.face?.normal.clone() || new THREE.Vector3(0, 0, 1);
-      if (meshRef.current) {
-         normal.transformDirection(meshRef.current.matrixWorld).normalize();
+      // Transform normal by the intersected object's world matrix
+      if (hit.object) {
+         normal.transformDirection(hit.object.matrixWorld).normalize();
       }
 
       setCursor({ point: hit.point, normal, radius });
     } else {
       setCursor(null);
     }
-  }, [camera, brushSettings.size]);
+  }, [camera, brushSettings.size, size.height]);
+
+  // Hold latest interaction for throttled move
+  const latestInteraction = useRef<{ hit: THREE.Intersection, pressure: number } | null>(null);
 
   const processPointerEvent = useCallback(() => {
     pointerRafRef.current = 0;
-    const data = pointerEventData.current;
-    if (!data) return;
-    pointerEventData.current = null;
+    const interaction = latestInteraction.current;
+    if (!interaction) return;
 
-    const { event, isDown } = data;
-    const mesh = meshRef.current;
-    if (!mesh) return;
-
-    const nativeEvent = event.nativeEvent;
-    const rect = gl.domElement.getBoundingClientRect();
-    mouse.current.x = ((nativeEvent.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.current.y = -((nativeEvent.clientY - rect.top) / rect.height) * 2 + 1;
-
-    raycaster.current.setFromCamera(mouse.current, camera);
-    const intersects = raycaster.current.intersectObject(mesh);
-    updateCursor(intersects);
-
-    if (intersects.length > 0) {
-      if (isDown) {
-        onPaintingChange?.(true);
-        startPainting(intersects[0]);
-        gl.domElement.setPointerCapture(nativeEvent.pointerId);
-      } else {
-        paint(intersects[0]);
-      }
-    }
-  }, [camera, gl, startPainting, paint, onPaintingChange, updateCursor]);
+    updateCursor(interaction.hit, interaction.pressure);
+    paint(interaction.hit, interaction.pressure);
+  }, [paint, updateCursor]);
 
   // Handle mouse events for painting
   const handlePointerDown = useCallback(
-    (event: React.PointerEvent<THREE.Mesh>) => {
+    (event: any) => {
       event.stopPropagation();
-      // Execute immediately for responsiveness on initial touch
-      pointerEventData.current = { event, isDown: true };
-      processPointerEvent();
+      const hit = event.intersections[0] as THREE.Intersection;
+      if (!hit) return;
+      
+      const nativeEvent = event.nativeEvent as PointerEvent;
+      let pressure = nativeEvent.pointerType === 'pen' ? nativeEvent.pressure : 1.0;
+      if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
+      
+      onPaintingChange?.(true);
+      startPainting(hit, pressure);
+      updateCursor(hit, pressure);
+      gl.domElement.setPointerCapture(nativeEvent.pointerId);
     },
-    [processPointerEvent]
+    [startPainting, updateCursor, onPaintingChange, gl]
   );
 
   const handlePointerMove = useCallback(
-    (event: React.PointerEvent<THREE.Mesh>) => {
-      // Throttle pointer move to 1 call per frame (fixes 120Hz/240Hz tablet lag)
-      pointerEventData.current = { event, isDown: false };
+    (event: any) => {
+      const hit = event.intersections[0] as THREE.Intersection;
+      if (!hit) {
+        setCursor(null);
+        return;
+      }
+      
+      const nativeEvent = event.nativeEvent as PointerEvent;
+      let pressure = nativeEvent.pointerType === 'pen' ? nativeEvent.pressure : 1.0;
+      if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
+      
+      latestInteraction.current = { hit, pressure };
       if (pointerRafRef.current === 0) {
         pointerRafRef.current = requestAnimationFrame(processPointerEvent);
       }
@@ -194,15 +197,14 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   );
 
   const handlePointerUp = useCallback(
-    (event: React.PointerEvent<THREE.Mesh>) => {
+    (event: any) => {
       event.stopPropagation();
       
-      // Clear any pending frame
       if (pointerRafRef.current !== 0) {
         cancelAnimationFrame(pointerRafRef.current);
         pointerRafRef.current = 0;
-        pointerEventData.current = null;
       }
+      latestInteraction.current = null;
 
       onPaintingChange?.(false);
       stopPainting();
@@ -217,7 +219,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     [gl, stopPainting, onPaintingChange]
   );
 
-  const handlePointerLeave = useCallback((event: React.PointerEvent<THREE.Mesh>) => {
+  const handlePointerLeave = useCallback((event: any) => {
     handlePointerUp(event);
     setCursor(null);
   }, [handlePointerUp]);
@@ -233,41 +235,44 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   // Geometry is passed directly to the mesh props to avoid R3F <primitive> attach/detach issues across multiple meshes
 
   return (
-    <group>
-      {/* Main paintable meshes */}
-      {modelParts.length > 0 ? (
-        modelParts.map((part) => {
-          const isActive = part.id === activePartId;
-          if (!part.visible) return null;
-
-          return (
-            <group
-               key={part.id}
-               position={part.position}
-               rotation={part.rotation}
-               scale={part.scale}
-            >
+    <>
+      <group position={modelTransform?.position} rotation={modelTransform?.rotation} scale={modelTransform?.scale}>
+        {/* Main paintable group containing all visible submeshes */}
+        <group ref={groupRef}>
+        {modelParts.length > 0 ? (
+          modelParts.map((part) => {
+            if (!part.visible) return null;
+            return (
               <mesh
-                ref={isActive ? meshRef : undefined}
+                key={part.id}
                 geometry={part.geometry}
-                onPointerDown={isActive ? handlePointerDown : undefined}
-                onPointerMove={isActive ? handlePointerMove : undefined}
-                onPointerUp={isActive ? handlePointerUp : undefined}
-                onPointerLeave={isActive ? handlePointerLeave : undefined}
-                // Only the active part uses the paintable material, others use standard with vertex colors or default material
-                // We'll let the existing useEffect over meshRef handle the active material.
-                // For inactive parts, we just render them with a basic material or the matcap (without the paint texture overlay)
-              >
-                {isActive ? null : (
-                    matcapName && matcapTexture ? (
-                        <meshMatcapMaterial matcap={matcapTexture} flatShading={flatShading} color={objectColor} />
-                    ) : (
-                        <meshStandardMaterial roughness={roughness} metalness={metalness} flatShading={flatShading} color={objectColor} />
-                    )
-                )}
-              </mesh>
-              {showWireframe && (
-                <mesh geometry={part.geometry}>
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerLeave={handlePointerLeave}
+              />
+            );
+          })
+        ) : (
+          <mesh
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerLeave}
+          >
+            <sphereGeometry args={[2, 128, 128]} />
+          </mesh>
+        )}
+      </group>
+
+      {/* Wireframe overlay group */}
+      {showWireframe && (
+        <group>
+          {modelParts.length > 0 ? (
+            modelParts.map((part) => {
+              if (!part.visible) return null;
+              return (
+                <mesh key={`wire-${part.id}`} geometry={part.geometry}>
                   <meshBasicMaterial
                     color="#00ff00"
                     wireframe
@@ -276,22 +281,9 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
                     depthTest={false}
                   />
                 </mesh>
-              )}
-            </group>
-          );
-        })
-      ) : (
-        <group>
-          <mesh
-            ref={meshRef}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerLeave}
-          >
-            <sphereGeometry args={[2, 128, 128]} />
-          </mesh>
-          {showWireframe && (
+              );
+            })
+          ) : (
             <mesh>
               <sphereGeometry args={[2, 128, 128]} />
               <meshBasicMaterial
@@ -305,13 +297,15 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         </group>
       )}
 
+      </group>
+
       {/* Brush Cursor Indicator */}
       {cursor && (
         <mesh 
-          position={cursor.point} 
-          quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), cursor.normal)}
+          position={cursor!.point} 
+          quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), cursor!.normal)}
         >
-          <ringGeometry args={[cursor.radius * 0.9, cursor.radius, 32]} />
+          <ringGeometry args={[cursor!.radius * 0.9, cursor!.radius, 32]} />
           <meshBasicMaterial 
             color={brushSettings.color} 
             opacity={0.6} 
@@ -322,6 +316,6 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
           />
         </mesh>
       )}
-    </group>
+    </>
   );
 };

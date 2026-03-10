@@ -30,8 +30,8 @@ const fragmentShader = `
     float closestDist = 9999.0;
     vec4 bestColor = vec4(0.0);
     
-    for (int y = -4; y <= 4; y++) {
-      for (int x = -4; x <= 4; x++) {
+    for (int y = -16; y <= 16; y+=2) {
+      for (int x = -16; x <= 16; x+=2) {
         if (x == 0 && y == 0) continue;
         
         vec2 offset = vec2(float(x), float(y)) * uPixelSize;

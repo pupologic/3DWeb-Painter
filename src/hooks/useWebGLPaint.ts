@@ -26,10 +26,11 @@ export interface GPULayer {
 const MAX_HISTORY = 10;
 
 export function useWebGLPaint(
-  meshRef: React.RefObject<THREE.Mesh | null>,
-  brushSettings: BrushSettings
+  groupRef: React.RefObject<THREE.Group | null>,
+  brushSettings: BrushSettings,
+  updateDependencies: any[] = []
 ) {
-  const { gl } = useThree();
+  const { gl, camera, size: canvasSize } = useThree();
   const [layers, setLayers] = useState<GPULayer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
 
@@ -61,6 +62,7 @@ export function useWebGLPaint(
     compositeMaterials: new Map<string, THREE.MeshBasicMaterial>(),
 
     lastHitPoint: new THREE.Vector3(),
+    lastPressure: 1.0,
     previewCanvas: document.createElement('canvas'),
     previewContext: null as CanvasRenderingContext2D | null,
     lastSyncTime: 0,
@@ -96,6 +98,8 @@ export function useWebGLPaint(
     state.previewContext = state.previewCanvas.getContext('2d');
 
     addLayer('Base Layer');
+    state.needsUVMaskUpdate = true;
+    state.needsComposite = true;
   }, []);
 
   const cloneTarget = useCallback((source: THREE.WebGLRenderTarget) => {
@@ -173,14 +177,23 @@ export function useWebGLPaint(
     }
   }, [getActiveLayer, cloneTarget]);
 
-  const drawStamp = useCallback((worldPos: THREE.Vector3, activeLayer: GPULayer) => {
+  const drawStamp = useCallback((worldPos: THREE.Vector3, activeLayer: GPULayer, pressure: number = 1.0) => {
     const state = stateRef.current;
     const { color, opacity, hardness, type, mode, size } = brushSettings;
 
-    // Convert screen size brush to world radius approximately
-    // Real implementation would calculate world radius at the hit point relative to camera
-    // We use a simplified constant for now, should be refined based on fov and distance
-    const worldRadius = size * 0.002;
+    const dist = camera.position.distanceTo(worldPos);
+    let worldRadius = 0.1;
+    const dynamicSize = size * Math.max(0.05, pressure);
+
+    if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+      const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+      const worldHeight = 2 * dist * Math.tan(fov / 2);
+      worldRadius = (dynamicSize / canvasSize.height) * worldHeight * 0.5;
+    } else {
+      const ortho = camera as THREE.OrthographicCamera;
+      const worldHeight = ortho.top - ortho.bottom;
+      worldRadius = (dynamicSize / canvasSize.height) * worldHeight * 0.5;
+    }
 
     // Setup material for decal
     state.brushMaterial.setBrush(color, mode === 'erase' ? 1.0 : opacity, worldPos, worldRadius, hardness, type === 'square');
@@ -198,30 +211,46 @@ export function useWebGLPaint(
     const oldRT = gl.getRenderTarget();
     gl.autoClear = false;
     gl.setRenderTarget(activeLayer.target);
-    gl.render(state.decalScene, state.decalCamera);
+
+    if (groupRef.current) {
+      groupRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.visible) {
+          state.decalMesh.geometry = child.geometry;
+          
+          // Decompose the child's true World matrix into the decalMesh's local SRT
+          // This ensures that when gl.render() implicitly triggers updateMatrixWorld(),
+          // the matrix does not revert to Identity!
+          child.matrixWorld.decompose(
+            state.decalMesh.position,
+            state.decalMesh.quaternion,
+            state.decalMesh.scale
+          );
+          
+          gl.render(state.decalScene, state.decalCamera);
+        }
+      });
+    }
+
     gl.setRenderTarget(oldRT);
     gl.autoClear = true;
 
     state.needsComposite = true;
   }, [brushSettings, gl]);
 
-  const startPainting = useCallback((intersection: THREE.Intersection) => {
+  const startPainting = useCallback((intersection: THREE.Intersection, pressure: number = 1.0) => {
     const state = stateRef.current;
-    if (!meshRef.current) return;
+    if (!groupRef.current) return;
     
     state.isPainting = true;
     state.lastHitPoint.copy(intersection.point);
+    state.lastPressure = pressure;
     saveUndoState();
-
-    // Sync decalMesh transform with the real mesh
-    state.decalMesh.matrixAutoUpdate = false;
-    state.decalMesh.matrixWorld.copy(meshRef.current.matrixWorld);
     
     const activeLine = getActiveLayer();
-    if (activeLine) drawStamp(intersection.point, activeLine);
-  }, [getActiveLayer, drawStamp, saveUndoState, meshRef]);
+    if (activeLine) drawStamp(intersection.point, activeLine, pressure);
+  }, [getActiveLayer, drawStamp, saveUndoState, groupRef]);
 
-  const paint = useCallback((intersection: THREE.Intersection) => {
+  const paint = useCallback((intersection: THREE.Intersection, targetPressure: number = 1.0) => {
     const state = stateRef.current;
     if (!state.isPainting) return;
     
@@ -231,21 +260,34 @@ export function useWebGLPaint(
     const currentPoint = intersection.point;
     const distance = state.lastHitPoint.distanceTo(currentPoint);
     
-    // Convert screen brush size approx to world step
-    // spacing of 0.1 means stamps every 10% of brush size radius
-    // spacing of 1.0 means stamps exactly tangent
-    const worldRadius = brushSettings.size * 0.002;
+    const distToCam = camera.position.distanceTo(currentPoint);
+    let worldRadius = 0.1;
+    const dynamicSize = brushSettings.size * Math.max(0.05, targetPressure);
+
+    if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
+      const fov = (camera as THREE.PerspectiveCamera).fov * (Math.PI / 180);
+      const worldHeight = 2 * distToCam * Math.tan(fov / 2);
+      worldRadius = (dynamicSize / canvasSize.height) * worldHeight * 0.5;
+    } else {
+      const ortho = camera as THREE.OrthographicCamera;
+      const worldHeight = ortho.top - ortho.bottom;
+      worldRadius = (dynamicSize / canvasSize.height) * worldHeight * 0.5;
+    }
+
     const stepDist = Math.max(0.001, worldRadius * brushSettings.spacing);
     const steps = Math.ceil(distance / stepDist);
     
-    // Interpolate in 3D space
+    // Interpolate in 3D space and pressure space
     for (let i = 1; i <= steps; i++) {
-       const lerpPos = new THREE.Vector3().lerpVectors(state.lastHitPoint, currentPoint, i / steps);
-       drawStamp(lerpPos, activeLayer);
+       const t = i / steps;
+       const lerpPos = new THREE.Vector3().lerpVectors(state.lastHitPoint, currentPoint, t);
+       const lerpPressure = THREE.MathUtils.lerp(state.lastPressure, targetPressure, t);
+       drawStamp(lerpPos, activeLayer, lerpPressure);
     }
 
     state.lastHitPoint.copy(currentPoint);
-  }, [brushSettings.size, drawStamp, getActiveLayer]);
+    state.lastPressure = targetPressure;
+  }, [brushSettings.size, brushSettings.spacing, drawStamp, getActiveLayer, camera, canvasSize.height]);
 
   const stopPainting = useCallback(() => {
     stateRef.current.isPainting = false;
@@ -306,7 +348,16 @@ export function useWebGLPaint(
       gl.clear();
       const oldMat = state.decalMesh.material;
       state.decalMesh.material = state.uvMaskMaterial;
-      gl.render(state.decalScene, state.decalCamera);
+      
+      if (groupRef.current) {
+        groupRef.current.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.visible) {
+            state.decalMesh.geometry = child.geometry;
+            gl.render(state.decalScene, state.decalCamera);
+          }
+        });
+      }
+
       state.decalMesh.material = oldMat;
       state.needsUVMaskUpdate = false;
       gl.setRenderTarget(oldRT);
@@ -369,14 +420,11 @@ export function useWebGLPaint(
     return () => cancelAnimationFrame(animId);
   }, [compositeAllLayers]);
 
-  // Sync geometry
+  // Sync geometry UV masks when parts change
   useEffect(() => {
-    if (meshRef.current && meshRef.current.geometry) {
-       stateRef.current.decalMesh.geometry = meshRef.current.geometry;
-       stateRef.current.needsUVMaskUpdate = true;
-       stateRef.current.needsComposite = true;
-    }
-  }, [meshRef, meshRef.current?.geometry]);
+    stateRef.current.needsUVMaskUpdate = true;
+    stateRef.current.needsComposite = true;
+  }, [groupRef, ...updateDependencies]);
 
   // Provide texture out
   const texture = stateRef.current.dilatedTarget?.texture || null;

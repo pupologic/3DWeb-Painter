@@ -5,6 +5,7 @@ import { BrushControls } from '@/components/ui-custom/BrushControls';
 import { ColorPicker } from '@/components/ui-custom/ColorPicker';
 import { TexturePreview } from '@/components/ui-custom/TexturePreview';
 import { MeshSelector } from '@/components/ui-custom/MeshSelector';
+import { TransformPanel } from '@/components/ui-custom/TransformPanel';
 import { LayersPanel } from '@/components/ui-custom/LayersPanel';
 import { EnvironmentPanel } from '@/components/ui-custom/EnvironmentPanel';
 import { MaterialPanel } from '@/components/ui-custom/MaterialPanel';
@@ -23,9 +24,6 @@ export interface ModelPart {
   name: string;
   geometry: THREE.BufferGeometry;
   visible: boolean;
-  position: [number, number, number];
-  rotation: [number, number, number];
-  scale: [number, number, number];
 }
 
 function App() {
@@ -41,7 +39,12 @@ function App() {
 
   const [modelName, setModelName] = useState<string>('Suzanne');
   const [modelParts, setModelParts] = useState<ModelPart[]>([]);
-  const [activePartId, setActivePartId] = useState<string | null>(null);
+
+  const [modelTransform, setModelTransform] = useState({
+    position: [0, 0, 0] as [number, number, number],
+    rotation: [0, 0, 0] as [number, number, number],
+    scale: [1, 1, 1] as [number, number, number]
+  });
 
   const [showUVPanel, setShowUVPanel] = useState<boolean>(false);
   const [uvPanelWidth, setUvPanelWidth] = useState<number>(50); // percent
@@ -86,16 +89,12 @@ function App() {
             name: child.name || `Part ${parts.length + 1}`,
             geometry: geom,
             visible: true,
-            position: [0, 0, 0],
-            rotation: [0, 0, 0],
-            scale: [1, 1, 1],
           });
         }
       });
 
       if (parts.length > 0) {
         setModelParts(parts);
-        setActivePartId(parts[0].id);
       }
     } catch (err) {
       console.error('Failed to parse Suzanne.obj', err);
@@ -169,27 +168,21 @@ function App() {
     }
   }, [layerControls, brushSettings.color]);
 
-  const handleSetActivePart = useCallback((id: string) => {
-    setActivePartId(id);
-  }, []);
-
   const handleTogglePartVisibility = useCallback((id: string) => {
     setModelParts((prev) => 
       prev.map(part => part.id === id ? { ...part, visible: !part.visible } : part)
     );
   }, []);
 
-  const handleUpdatePartTransform = useCallback((id: string, transformType: 'position' | 'rotation' | 'scale', axis: 0 | 1 | 2, value: number) => {
-    setModelParts((prev) => 
-      prev.map(part => {
-        if (part.id === id) {
-          const newTransform = [...part[transformType]] as [number, number, number];
-          newTransform[axis] = value;
-          return { ...part, [transformType]: newTransform };
-        }
-        return part;
-      })
-    );
+  const handleUpdateTransform = useCallback((transformType: 'position' | 'rotation' | 'scale', axis: 0 | 1 | 2 | 'all', value: number) => {
+    setModelTransform(prev => {
+      if (axis === 'all') {
+        return { ...prev, [transformType]: [value, value, value] as [number, number, number] };
+      }
+      const newTransform = [...prev[transformType]] as [number, number, number];
+      newTransform[axis] = value;
+      return { ...prev, [transformType]: newTransform };
+    });
   }, []);
 
   const handleObjUpload = useCallback((file: File) => {
@@ -212,17 +205,14 @@ function App() {
               name: child.name || `Part ${parts.length + 1}`,
               geometry: geom,
               visible: true,
-              position: [0, 0, 0],
-              rotation: [0, 0, 0],
-              scale: [1, 1, 1],
             });
           }
         });
 
         if (parts.length > 0) {
           setModelParts(parts);
-          setActivePartId(parts[0].id);
           setModelName(file.name.replace(/\.obj$/i, ''));
+          handleClear(); // Automatically create a baseline texture
           toast.success('Modelo OBJ carregado com sucesso!');
         } else {
           toast.error('O arquivo OBJ não contém geometrias válidas.');
@@ -233,7 +223,7 @@ function App() {
       }
     };
     reader.readAsText(file);
-  }, []);
+  }, [handleClear]);
 
   return (
     <div className="h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans">
@@ -246,8 +236,9 @@ function App() {
             <div className="bg-white/5 p-2 rounded-lg border border-white/10">
               <Brush className="w-4 h-4 text-zinc-300" />
             </div>
-            <div className="hidden sm:block">
+            <div className="hidden sm:flex items-baseline gap-2">
               <h1 className="text-xs font-semibold text-zinc-100 tracking-wide">3D PAINTER</h1>
+              <span className="text-[10px] text-zinc-500 font-medium">v1.1.9</span>
             </div>
           </div>
 
@@ -266,10 +257,19 @@ function App() {
                   flatShading={flatShading}
                   setFlatShading={setFlatShading}
                   modelParts={modelParts}
-                  activePartId={activePartId}
-                  onSetActivePart={handleSetActivePart}
                   onTogglePartVisibility={handleTogglePartVisibility}
-                  onUpdatePartTransform={handleUpdatePartTransform}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <Popover>
+              <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md flex items-center justify-center cursor-pointer">
+                <Boxes className="w-5 h-5" />
+              </PopoverTrigger>
+              <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2" align="start">
+                <TransformPanel 
+                  modelTransform={modelTransform}
+                  onUpdateTransform={handleUpdateTransform}
                 />
               </PopoverContent>
             </Popover>
@@ -454,7 +454,7 @@ function App() {
               <Scene3D
                 brushSettings={brushSettings}
                 modelParts={modelParts}
-                activePartId={activePartId}
+                modelTransform={modelTransform}
                 showGrid={showGrid}
                 showWireframe={showWireframe}
                 flatShading={flatShading}
@@ -513,7 +513,7 @@ function App() {
                 display: showUVPanel ? 'block' : 'none',
               }}
             >
-              <UVOverlayPanel texture={currentTexture} previewCanvas={previewCanvas} geometry={modelParts.find(p => p.id === activePartId)?.geometry || null} />
+              <UVOverlayPanel texture={currentTexture} previewCanvas={previewCanvas} geometry={modelParts[0]?.geometry || null} />
             </div>
           </div>
         </main>
