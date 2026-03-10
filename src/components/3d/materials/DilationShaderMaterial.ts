@@ -12,6 +12,7 @@ const fragmentShader = `
   uniform sampler2D tDiffuse;
   uniform sampler2D tMask;
   uniform vec2 uPixelSize;
+  uniform float uRadius;
   varying vec2 vUv;
 
   void main() {
@@ -29,9 +30,12 @@ const fragmentShader = `
     // Look for the nearest painted neighbor that is INSIDE the UV island.
     float closestDist = 9999.0;
     vec4 bestColor = vec4(0.0);
+    int maxRad = int(uRadius);
     
     for (int y = -16; y <= 16; y+=2) {
+      if (y > maxRad || y < -maxRad) continue;
       for (int x = -16; x <= 16; x+=2) {
+        if (x > maxRad || x < -maxRad) continue;
         if (x == 0 && y == 0) continue;
         
         vec2 offset = vec2(float(x), float(y)) * uPixelSize;
@@ -66,6 +70,7 @@ export class DilationShaderMaterial extends THREE.ShaderMaterial {
         tDiffuse: { value: null },
         tMask: { value: null },
         uPixelSize: { value: new THREE.Vector2(1/2048, 1/2048) },
+        uRadius: { value: 16.0 },
       },
       depthTest: false,
       depthWrite: false,
@@ -73,9 +78,10 @@ export class DilationShaderMaterial extends THREE.ShaderMaterial {
     });
   }
 
-  setMap(map: THREE.Texture, mask: THREE.Texture, width: number, height: number) {
+  setMap(map: THREE.Texture, mask: THREE.Texture, width: number, height: number, radius: number = 16.0) {
     this.uniforms.tDiffuse.value = map;
     this.uniforms.tMask.value = mask;
     this.uniforms.uPixelSize.value.set(1 / width, 1 / height);
+    this.uniforms.uRadius.value = radius;
   }
 }

@@ -291,6 +291,7 @@ export function useWebGLPaint(
 
   const stopPainting = useCallback(() => {
     stateRef.current.isPainting = false;
+    stateRef.current.needsComposite = true; // Force final composite with full 16px dilation
   }, []);
 
   const syncPreviewCanvas = useCallback(() => {
@@ -396,7 +397,8 @@ export function useWebGLPaint(
       gl.setRenderTarget(state.dilatedTarget);
       gl.setClearColor(0x000000, 0);
       gl.clear();
-      state.dilationMaterial.setMap(state.compositeTarget.texture, state.uvMaskTarget.texture, state.textureSize, state.textureSize);
+      const currentRadius = state.isPainting ? 2.0 : 16.0;
+      state.dilationMaterial.setMap(state.compositeTarget.texture, state.uvMaskTarget.texture, state.textureSize, state.textureSize, currentRadius);
       state.compositeQuad.material = state.dilationMaterial;
       gl.render(state.compositeScene, state.compositeCamera);
     }
@@ -404,8 +406,11 @@ export function useWebGLPaint(
     gl.setRenderTarget(null); // Set render target back to canvas
     state.needsComposite = false;
     
-    // Sync preview canvas after compositing
-    syncPreviewCanvas();
+    // Sync preview canvas after compositing, ONLY when we finish painting
+    // gl.readRenderTargetPixels() is a GPU pipeline sinkhole block and kills FPS if run continuously!
+    if (!state.isPainting) {
+      syncPreviewCanvas();
+    }
   }, [gl, layers, syncPreviewCanvas]);
 
   useEffect(() => {
