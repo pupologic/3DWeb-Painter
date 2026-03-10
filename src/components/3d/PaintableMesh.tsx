@@ -59,6 +59,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   const { camera, gl, size } = useThree();
   const pointerRafRef = useRef<number>(0);
   const [cursor, setCursor] = useState<{ point: THREE.Vector3; normal: THREE.Vector3; radius: number } | null>(null);
+  const isOrbitingRef = useRef(false);
   
   const { 
     initPaintSystem, startPainting, paint, stopPainting,
@@ -157,14 +158,22 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     paint(interaction.hit, interaction.pressure);
   }, [paint, updateCursor]);
 
-  // Handle mouse events for painting
   const handlePointerDown = useCallback(
     (event: any) => {
       event.stopPropagation();
+      const nativeEvent = event.nativeEvent as PointerEvent;
+      
+      // If we clicked on the background or use secondary buttons, we are orbiting
+      if (nativeEvent.buttons > 1) {
+        isOrbitingRef.current = true;
+        setCursor(null);
+        return;
+      }
+      
+      isOrbitingRef.current = false;
       const hit = event.intersections[0] as THREE.Intersection;
       if (!hit) return;
       
-      const nativeEvent = event.nativeEvent as PointerEvent;
       let pressure = nativeEvent.pointerType === 'pen' ? nativeEvent.pressure : 1.0;
       if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
       
@@ -186,9 +195,8 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       
       const nativeEvent = event.nativeEvent as PointerEvent;
 
-      // Skip cursor updates if we are using right/middle mouse buttons (Orbiting/Panning)
-      // buttons > 1 means secondary buttons are pressed
-      if (nativeEvent.pointerType === 'mouse' && nativeEvent.buttons > 1) {
+      // Skip cursor updates if we are orbiting or using secondary buttons
+      if (isOrbitingRef.current || (nativeEvent.pointerType === 'mouse' && nativeEvent.buttons > 1)) {
         setCursor(null);
         return;
       }
@@ -213,6 +221,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         pointerRafRef.current = 0;
       }
       latestInteraction.current = null;
+      isOrbitingRef.current = false;
 
       onPaintingChange?.(false);
       stopPainting();
@@ -258,6 +267,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerLeave}
+                onPointerCancel={handlePointerUp}
               />
             );
           })
@@ -267,6 +277,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerLeave}
+            onPointerCancel={handlePointerUp}
           >
             <sphereGeometry args={[2, 128, 128]} />
           </mesh>
