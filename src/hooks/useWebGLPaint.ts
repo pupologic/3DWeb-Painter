@@ -118,7 +118,13 @@ export function useWebGLPaint(
     const currentTarget = renderer.getRenderTarget();
     renderer.setRenderTarget(clone);
     // Use the composite scene/quad to blit the texture
-    const mat = new THREE.MeshBasicMaterial({ map: source.texture, depthTest: false, depthWrite: false, transparent: false });
+    const mat = new THREE.MeshBasicMaterial({ 
+      map: source.texture, 
+      depthTest: false, 
+      depthWrite: false, 
+      transparent: true,
+      blending: THREE.NoBlending
+    });
     const oldMat = stateRef.current.compositeQuad.material;
     stateRef.current.compositeQuad.material = mat;
     renderer.render(stateRef.current.compositeScene, stateRef.current.compositeCamera);
@@ -561,7 +567,13 @@ export function useWebGLPaint(
     gl.setClearColor(0x000000, 0);
     gl.clear();
 
-    const blitMat = new THREE.MeshBasicMaterial({ map: sourceTarget.texture, depthTest: false, depthWrite: false });
+    const blitMat = new THREE.MeshBasicMaterial({ 
+      map: sourceTarget.texture, 
+      depthTest: false, 
+      depthWrite: false,
+      transparent: true,
+      blending: THREE.NoBlending
+    });
     const oldMat = stateRef.current.compositeQuad.material;
     stateRef.current.compositeQuad.material = blitMat;
 
