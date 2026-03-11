@@ -107,8 +107,25 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   useEffect(() => {
     if (groupRef.current) {
       const newMaterial = (matcapName && matcapTexture)
-        ? new THREE.MeshMatcapMaterial({ matcap: matcapTexture, map: texture || null, flatShading, color: objectColor })
-        : new THREE.MeshStandardMaterial({ map: texture || null, roughness, metalness, flatShading, color: objectColor });
+        ? new THREE.MeshMatcapMaterial({ 
+            matcap: matcapTexture, 
+            map: texture || null, 
+            flatShading, 
+            color: objectColor,
+            transparent: true,
+            depthWrite: true,
+            alphaTest: 0.001
+          })
+        : new THREE.MeshStandardMaterial({ 
+            map: texture || null, 
+            roughness, 
+            metalness, 
+            flatShading, 
+            color: objectColor,
+            transparent: true,
+            depthWrite: true,
+            alphaTest: 0.001
+          });
 
       groupRef.current.traverse((child) => {
         if (child instanceof THREE.Mesh) {

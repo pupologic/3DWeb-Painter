@@ -152,7 +152,14 @@ export function useWebGLPaint(
     // Clear it
     const oldRT = gl.getRenderTarget();
     gl.setRenderTarget(newTarget);
-    gl.setClearColor(0x000000, 0); 
+    
+    // If it's the first layer, fill with white, else transparent
+    if (layers.length === 0) {
+      gl.setClearColor(0xffffff, 1); 
+    } else {
+      gl.setClearColor(0x000000, 0); 
+    }
+    
     gl.clear();
     gl.setRenderTarget(oldRT);
 
@@ -375,8 +382,11 @@ export function useWebGLPaint(
       gl.setRenderTarget(oldRT);
     }
 
+    const oldAutoClear = gl.autoClear;
+    gl.autoClear = false;
+
     gl.setRenderTarget(state.compositeTarget);
-    gl.setClearColor(0xffffff, 1); 
+    gl.setClearColor(0x000000, 0); 
     gl.clear();
 
     // Render layers back-to-front (as index 0 is visually the top layer in UI)
@@ -404,6 +414,8 @@ export function useWebGLPaint(
       state.compositeQuad.material = mat;
       gl.render(state.compositeScene, state.compositeCamera);
     }
+    
+    gl.autoClear = oldAutoClear;
     
     // --- Dilation (Edge Padding) Pass ---
     if (state.uvMaskTarget) {
