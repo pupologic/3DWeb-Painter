@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { useWebGLPaint } from '@/hooks/useWebGLPaint';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
 import type { OverlayData } from '@/components/ui-custom/OverlayManager';
-import type { PerformanceConfig } from '@/App';
 
 import grayClay from '@/matcap/gray_clay_010001.png';
 import lightGrey from '@/matcap/light_grey_010001.png';
@@ -46,7 +45,6 @@ interface PaintableMeshProps {
   onColorPainted?: (color: string) => void;
   onLoadingProgress?: (progress: number, status: string) => void;
   isVisible?: boolean;
-  performanceConfig?: PerformanceConfig;
 }
 
 export const PaintableMesh: React.FC<PaintableMeshProps> = ({
@@ -67,8 +65,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   activeStencil,
   onColorPainted,
   onLoadingProgress,
-  isVisible = true,
-  performanceConfig
+  isVisible = true
 }) => {
   const groupRef = useRef<THREE.Group>(null);
   const { camera, gl, size } = useThree();
@@ -76,7 +73,6 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   const [cursor, setCursor] = useState<{ point: THREE.Vector3; normal: THREE.Vector3; radius: number, lazyPoint?: THREE.Vector3 } | null>(null);
   const isOrbitingRef = useRef(false);
   const isPickingRef = useRef(false);
-  const frameCountRef = useRef(0);
   
   const { 
     initPaintSystem, startPainting, paint, stopPainting,
@@ -89,8 +85,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     brushSettings,
     [modelParts],
     activeStencil,
-    onColorPainted,
-    performanceConfig
+    onColorPainted
   );
 
   const [loadingProgress, setLoadingProgress] = useState({ matcap: 0, layers: 0 });
@@ -288,19 +283,12 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       let pressure = nativeEvent.pointerType === 'pen' ? nativeEvent.pressure : 1.0;
       if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
       
-      // Raycast Throttling
-      frameCountRef.current++;
-      const throttle = performanceConfig?.raycastThrottle || 1;
-      if (throttle > 1 && frameCountRef.current % throttle !== 0) {
-        return;
-      }
-
       latestInteraction.current = { hit, pressure };
       if (pointerRafRef.current === 0) {
         pointerRafRef.current = requestAnimationFrame(processPointerEvent);
       }
     },
-    [processPointerEvent, performanceConfig]
+    [processPointerEvent]
   );
 
   const handlePointerUp = useCallback(

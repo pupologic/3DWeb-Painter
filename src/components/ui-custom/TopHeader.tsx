@@ -1,4 +1,4 @@
-import { Box, Boxes, Image as ImageIcon, Save, Columns2, Home, PaintBucket, Sun, Sparkles, Layers, Eclipse, Brush, Settings } from 'lucide-react';
+import { Box, Boxes, Image as ImageIcon, Save, Columns2, Home, PaintBucket, Sun, Sparkles, Layers, Eclipse, Brush } from 'lucide-react';
 import logoImg from '@/logo/logo.png';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MeshSelector } from '@/components/ui-custom/MeshSelector';
@@ -10,9 +10,7 @@ import { MaterialPanel } from '@/components/ui-custom/MaterialPanel';
 import { EssentialsPanel } from '@/components/ui-custom/EssentialsPanel';
 import { LayersPanel } from '@/components/ui-custom/LayersPanel';
 import { ColorPicker } from '@/components/ui-custom/ColorPicker';
-import { Slider } from '@/components/ui/slider';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
-import type { PerformanceConfig } from '@/App';
 
 export interface TopHeaderProps {
   setIsDashboard: (v: boolean) => void;
@@ -66,8 +64,6 @@ export interface TopHeaderProps {
   setMetalness: (v: number) => void;
   colorHistory: string[];
   layerControls: any;
-  performanceConfig: PerformanceConfig;
-  setPerformanceConfig: (v: PerformanceConfig) => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -80,35 +76,34 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   matcapName, setMatcapName, lightSetup, setLightSetup, lightIntensity, setLightIntensity,
   showGrid, setShowGrid, focalLength, setFocalLength, envIntensity, setEnvIntensity,
   objectColor, setObjectColor, roughness, setRoughness, metalness, setMetalness,
-  colorHistory, layerControls,
-  performanceConfig, setPerformanceConfig
+  colorHistory, layerControls
 }) => {
   return (
-    <header className="bg-[#121214] border-b border-white/5 px-4 py-3 flex items-center justify-between z-10 shadow-md">
+    <header className="bg-[#121214] border-b border-white/5 px-2 md:px-4 py-2 md:py-3 flex items-center justify-between z-10 shadow-md">
       {/* LEFT SIDE */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-1.5 md:gap-4">
         <button 
           onClick={() => setIsDashboard(true)}
-          className="p-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer text-zinc-400 hover:text-white"
+          className="p-1.5 md:p-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer text-zinc-400 hover:text-white"
           title="Voltar ao Dashboard"
         >
-          <Home className="w-5 h-5" />
+          <Home className="w-4 h-4 md:w-5 h-5" />
         </button>
         
-        <div className="flex items-center gap-3 pr-4 border-r border-white/10">
-          <div className="bg-white/5 p-1 rounded-lg border border-white/10 w-9 h-9 flex items-center justify-center overflow-hidden">
+        <div className="flex items-center gap-1.5 md:gap-3 pr-2 md:pr-4 border-r border-white/10">
+          <div className="bg-white/5 p-1 rounded-lg border border-white/10 w-7 h-7 md:w-9 h-9 flex items-center justify-center overflow-hidden">
             <img src={logoImg} alt="Logo" className="w-full h-full object-contain" />
           </div>
-          <div className="hidden sm:flex items-baseline gap-2">
-            <h1 className="text-xs font-semibold text-zinc-100 tracking-wide">3D WEB PAINTER</h1>
-            <span className="text-[10px] text-zinc-500 font-medium">v1.4.1</span>
+          <div className="hidden md:flex items-baseline gap-1.5 md:gap-2">
+            <h1 className="text-[10px] md:text-xs font-semibold text-zinc-100 tracking-wide">3D WEB PAINTER</h1>
+            <span className="text-[8px] md:text-[10px] text-zinc-500 font-medium hidden xl:inline">v1.4.1</span>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
           <Popover>
-            <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md flex items-center justify-center cursor-pointer">
-              <Box className="w-5 h-5" />
+            <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md flex items-center justify-center cursor-pointer">
+              <Box className="w-4 h-4 md:w-5 h-5" />
             </PopoverTrigger>
             <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2" align="start">
               <MeshSelector 
@@ -126,8 +121,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </Popover>
 
           <Popover>
-            <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md flex items-center justify-center cursor-pointer">
-              <Boxes className="w-5 h-5" />
+            <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md flex items-center justify-center cursor-pointer">
+              <Boxes className="w-4 h-4 md:w-5 h-5" />
             </PopoverTrigger>
             <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2" align="start">
               <TransformPanel 
@@ -138,8 +133,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </Popover>
 
           <Popover>
-            <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md flex items-center justify-center cursor-pointer">
-              <ImageIcon className="w-5 h-5" />
+            <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md flex items-center justify-center cursor-pointer">
+              <ImageIcon className="w-4 h-4 md:w-5 h-5" />
             </PopoverTrigger>
             <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2" align="start">
               <TexturePreview 
@@ -157,36 +152,36 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
       
       {/* RIGHT SIDE */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5 md:gap-1">
         <button
           onClick={handleSaveProject}
-          className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors p-2 rounded-md cursor-pointer mr-2 flex items-center justify-center"
+          className="text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors p-1.5 md:p-2 rounded-md cursor-pointer mr-0.5 md:mr-2 flex items-center justify-center"
           title="Savar Projeto (Ctrl+S)"
         >
-          <Save className="w-5 h-5" />
+          <Save className="w-4 h-4 md:w-5 h-5" />
         </button>
         
         <button
           onClick={() => setShowUVPanel(!showUVPanel)}
-          className={`transition-colors p-2 rounded-md flex items-center justify-center cursor-pointer ${showUVPanel ? 'text-zinc-100 bg-white/10' : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'}`}
+          className={`transition-colors p-1.5 md:p-2 rounded-md flex items-center justify-center cursor-pointer ${showUVPanel ? 'text-zinc-100 bg-white/10' : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'}`}
           title="Toggle UV View"
         >
-          <Columns2 className="w-5 h-5" />
+          <Columns2 className="w-4 h-4 md:w-5 h-5" />
         </button>
         
         <button
           onClick={handleFill}
-          className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md cursor-pointer"
+          className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md cursor-pointer"
           title="Fill Layer (Paint Bucket)"
         >
-          <PaintBucket className="w-5 h-5" />
+          <PaintBucket className="w-4 h-4 md:w-5 h-5" />
         </button>
 
-        <div className="w-px h-6 bg-white/10 mx-1" />
+        <div className="w-px h-5 md:h-6 bg-white/10 mx-0.5 md:mx-1" />
 
         <Popover>
-          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md cursor-pointer">
-            <Brush className="w-5 h-5" />
+          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md cursor-pointer">
+            <Brush className="w-4 h-4 md:w-5 h-5" />
           </PopoverTrigger>
           <PopoverContent className="w-96 bg-[#121214] border-white/10 p-5 mt-2 shadow-2xl">
             <BrushControls brushSettings={brushSettings} onBrushSettingsChange={setBrushSettings} />
@@ -194,8 +189,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </Popover>
 
         <Popover>
-          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md">
-            <Sun className="w-5 h-5" />
+          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md">
+            <Sun className="w-4 h-4 md:w-5 h-5" />
           </PopoverTrigger>
           <PopoverContent className="w-96 bg-[#121214] border-white/10 p-5 mt-2 shadow-2xl">
             <EnvironmentPanel
@@ -216,8 +211,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </Popover>
 
         <Popover>
-          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md">
-            <Eclipse className="w-5 h-5" />
+          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md">
+            <Eclipse className="w-4 h-4 md:w-5 h-5" />
           </PopoverTrigger>
           <PopoverContent className="w-96 bg-[#121214] border-white/10 p-5 mt-2 shadow-2xl">
             <MaterialPanel
@@ -233,8 +228,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </Popover>
 
         <Popover>
-          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md">
-            <Sparkles className="w-5 h-5" />
+          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md">
+            <Sparkles className="w-4 h-4 md:w-5 h-5" />
           </PopoverTrigger>
           <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2 shadow-2xl">
             <EssentialsPanel 
@@ -244,11 +239,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </PopoverContent>
         </Popover>
 
-
-
         <Popover>
-          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md">
-            <Layers className="w-5 h-5" />
+          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md">
+            <Layers className="w-4 h-4 md:w-5 h-5" />
           </PopoverTrigger>
           <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2">
             <LayersPanel layerControls={layerControls} />
@@ -256,50 +249,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         </Popover>
 
         <Popover>
-          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-2 rounded-md">
-            <Settings className="w-5 h-5" />
-          </PopoverTrigger>
-          <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2 shadow-2xl">
-            <div className="flex flex-col gap-6">
-              <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Configurações de Performance</h3>
-              
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-zinc-300 font-medium">Raycast Throttling</span>
-                  <span className="text-blue-400 font-mono">Pular {performanceConfig.raycastThrottle - 1} frames</span>
-                </div>
-                <Slider 
-                  value={[performanceConfig.raycastThrottle]} 
-                  onValueChange={([val]) => setPerformanceConfig({ ...performanceConfig, raycastThrottle: val })}
-                  min={1}
-                  max={5}
-                  step={1}
-                />
-                <p className="text-[10px] text-zinc-500 italic">Reduz a precisão do cursor em favor de FPS em dispositivos lentos.</p>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-zinc-300 font-medium">Raio de Dilatação (Padding)</span>
-                  <span className="text-blue-400 font-mono">{performanceConfig.dilationRadius}px</span>
-                </div>
-                <Slider 
-                  value={[performanceConfig.dilationRadius]} 
-                  onValueChange={([val]) => setPerformanceConfig({ ...performanceConfig, dilationRadius: val })}
-                  min={2}
-                  max={16}
-                  step={2}
-                />
-                <p className="text-[10px] text-zinc-500 italic">Controla o preenchimento entre as ilhas da UV para evitar falhas visuais.</p>
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger className="p-1.5 focus:outline-none hover:scale-105 transition-transform">
+          <PopoverTrigger className="p-1 md:p-1.5 focus:outline-none hover:scale-105 transition-transform">
             <div 
-              className="w-7 h-7 rounded-full border-2 border-white/20 shadow-sm" 
+              className="w-6 h-6 md:w-7 h-7 rounded-full border-2 border-white/20 shadow-sm" 
               style={{ backgroundColor: brushSettings.color }} 
             />
           </PopoverTrigger>

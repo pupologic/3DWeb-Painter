@@ -23,11 +23,6 @@ export interface ModelPart {
   visible: boolean;
 }
 
-export interface PerformanceConfig {
-  raycastThrottle: number; // 1 = every frame, 2 = every 2 frames, etc.
-  dilationRadius: number; // 2 to 16
-}
-
 function App() {
   const [brushSettings, setBrushSettings] = useState<BrushSettings>({
     size: 20,
@@ -100,11 +95,6 @@ function App() {
   const [objectColor, setObjectColor] = useState('#e5e5e5');
   const [roughness, setRoughness] = useState(0.8);
   const [metalness, setMetalness] = useState(0.1);
-
-  const [performanceConfig, setPerformanceConfig] = useState<PerformanceConfig>({
-    raycastThrottle: 1,
-    dilationRadius: 16,
-  });
 
   const handleAddOverlay = useCallback((type: 'reference' | 'stencil', file: File) => {
     const url = URL.createObjectURL(file);
@@ -403,8 +393,6 @@ function App() {
         setMetalness={setMetalness}
         colorHistory={colorHistory}
         layerControls={layerControls}
-        performanceConfig={performanceConfig}
-        setPerformanceConfig={setPerformanceConfig}
       />
 
       <div className="flex-1 flex overflow-hidden bg-[#09090b]">
@@ -458,7 +446,6 @@ function App() {
                 onLayerControlsReady={handleLayerControlsReady}
                 onColorPainted={handleColorPainted}
                 activeStencil={overlays.find(o => o.type === 'stencil' && o.visible)}
-                performanceConfig={performanceConfig}
                 onLoadingProgress={(prog) => {
                   setLoadingProgress(prog);
                   if (prog >= 100) {

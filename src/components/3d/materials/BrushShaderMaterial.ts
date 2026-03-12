@@ -29,6 +29,7 @@ const fragmentShader = `
   uniform mat4 uVPMatrix; // View-Projection Matrix for screen space projection
   uniform int uStencilMode; // 0: Alpha, 1: Invert, 2: Luminance
   uniform bool uIsEraser;
+  uniform vec3 uCameraPos;
   
     varying vec3 vWorldPos;
     varying vec3 vNormal;
@@ -41,18 +42,22 @@ const fragmentShader = `
 
     void main() {
       // 1. Normal Masking: Only paint surfaces facing the brush
-      // Relaxed threshold (0.05) to prevent aggressive culling on curves
+      // Tightened threshold (0.2) to prevent bleed on tight corners (like eyes/fingers)
       float angleFactor = dot(normalize(vNormal), normalize(uBrushNormal));
-      if (angleFactor < 0.05) discard; 
+      if (angleFactor < 0.2) discard; 
 
-      // 2. Depth Masking: Converted to a deep volume (decal projector) for radial symmetry.
-      // Meshes that aren't perfectly symmetrical cause projected points to float.
-      // We now rely heavily on the normal angle culling to prevent back-face painting.
+      // 2. View Masking: Only paint surfaces facing the camera
+      vec3 viewDir = normalize(uCameraPos - vWorldPos);
+      float viewFactor = dot(normalize(vNormal), viewDir);
+      if (viewFactor < 0.1) discard;
+
+      // 3. Depth Masking: Projector volume
       float depthDist = abs(dot(vWorldPos - uBrushPos, normalize(uBrushNormal)));
-      // Relaxed from 1.0 to 1.5 to allow radial symmetry to climb subtle curves without piercing entire arms/legs.
-      if (depthDist > uRadius * 1.5) discard;
+      // Tightened threshold (1.0) and added smooth falloff
+      if (depthDist > uRadius * 1.0) discard;
+      float depthAlpha = 1.0 - smoothstep(uRadius * 0.5, uRadius * 1.0, depthDist);
 
-      float alphaMultiplier = 1.0;
+      float alphaMultiplier = depthAlpha;
 
       // 3. Project to 2D Plane (Decal Projection)
       // Vector from brush center to current pixel
@@ -188,7 +193,8 @@ export class BrushShaderMaterial extends THREE.ShaderMaterial {
         uStencilMatrix: { value: new THREE.Matrix3() },
         uVPMatrix: { value: new THREE.Matrix4() },
         uStencilMode: { value: 0 },
-        uIsEraser: { value: false }
+        uIsEraser: { value: false },
+        uCameraPos: { value: new THREE.Vector3() }
       },
       transparent: true,
       depthTest: false,
@@ -210,9 +216,11 @@ export class BrushShaderMaterial extends THREE.ShaderMaterial {
     stencilTexture: THREE.Texture | null = null,
     stencilMatrix: THREE.Matrix3 | null = null,
     vpMatrix: THREE.Matrix4 | null = null,
-    stencilMode: number = 0
+    stencilMode: number = 0,
+    cameraPos: THREE.Vector3 = new THREE.Vector3()
   ) {
     this.uniforms.uColor.value.set(color);
+    this.uniforms.uCameraPos.value.copy(cameraPos);
     this.uniforms.uOpacity.value = opacity;
     this.uniforms.uBrushPos.value.copy(worldPos);
     this.uniforms.uRadius.value = radius;

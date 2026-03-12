@@ -5,7 +5,6 @@ import { BrushShaderMaterial } from '../components/3d/materials/BrushShaderMater
 import { DilationShaderMaterial } from '../components/3d/materials/DilationShaderMaterial';
 import { CompositeShaderMaterial } from '../components/3d/materials/CompositeShaderMaterial';
 import type { OverlayData } from '../components/ui-custom/OverlayManager';
-import type { PerformanceConfig } from '../App';
 
 export interface BrushSettings {
   color: string;
@@ -49,8 +48,7 @@ export function useWebGLPaint(
   brushSettings: BrushSettings,
   updateDependencies: any[] = [],
   activeStencil?: OverlayData,
-  onColorPainted?: (color: string) => void,
-  performanceConfig?: PerformanceConfig
+  onColorPainted?: (color: string) => void
 ) {
   const { gl, camera, size: canvasSize } = useThree();
   const onColorPaintedRef = useRef(onColorPainted);
@@ -411,7 +409,8 @@ export function useWebGLPaint(
       stencilTex,
       stencilMat,
       vpMatrix,
-      stencilMode
+      stencilMode,
+      camera.position
     );
     
     // Render
@@ -467,7 +466,8 @@ export function useWebGLPaint(
           stencilTex,
           stencilMat,
           vpMatrix,
-          stencilMode
+          stencilMode,
+          camera.position
         );
         renderDecal();
       } 
@@ -525,7 +525,8 @@ export function useWebGLPaint(
             stencilTex,
             stencilMat,
             vpMatrix,
-            stencilMode
+            stencilMode,
+            camera.position
           );
           renderDecal();
         }
@@ -753,8 +754,7 @@ export function useWebGLPaint(
       
       // Use low radius during painting, full radius during idle or stagger step 1
       const isFinalizing = state.staggerStep === 1;
-      const maxRadius = performanceConfig?.dilationRadius || 16.0;
-      const currentRadius = (state.isPainting) ? Math.min(2.0, maxRadius) : maxRadius;
+      const currentRadius = (state.isPainting) ? 2.0 : 16.0;
       
       state.dilationMaterial.setMap(state.compositeTarget.texture, state.uvMaskTarget.texture, state.textureSize, state.textureSize, currentRadius);
       state.compositeQuad.material = state.dilationMaterial;
@@ -767,7 +767,7 @@ export function useWebGLPaint(
     state.needsComposite = false;
     
     // We handle SyncPreview separately in the loop for staggering
-  }, [gl, groupRef, layers, performanceConfig]);
+  }, [gl, groupRef, layers]);
 
   useEffect(() => {
     let animId: number;
