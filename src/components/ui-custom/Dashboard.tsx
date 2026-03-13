@@ -59,9 +59,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
   return (
     <div className="w-full h-screen bg-[#09090b] text-zinc-100 flex flex-col p-8 md:p-12 overflow-y-auto items-center">
       <div className="w-full max-w-7xl flex flex-col">
-        <header className="mb-16 flex items-center justify-start w-full">
-          <div className="w-[700px] h-48 flex items-center justify-start overflow-hidden ml-[-10px]">
-            <img src={logoImg} alt="Webflow" className="h-full object-contain object-left" />
+        <header className="mb-12 md:mb-16 flex items-center justify-center md:justify-start w-full">
+          <div className="w-full md:w-[700px] h-32 md:h-48 flex items-center justify-center md:justify-start overflow-hidden md:ml-[20px]">
+            <img src={logoImg} alt="Webflow" className="h-full object-contain object-center md:object-left" />
           </div>
         </header>
 
@@ -71,9 +71,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Plus className="w-5 h-5 text-blue-400" /> Novo Projeto
             </h2>
-            
+
             <div className="flex flex-col gap-4">
-              <button 
+              <button
                 onClick={() => onNewProject('Suzanne')}
                 className="flex items-center gap-4 p-5 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all text-left group"
               >
@@ -86,9 +86,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
               </button>
 
               <div className="relative overflow-hidden flex items-center gap-4 p-5 rounded-2xl border border-dashed border-white/20 bg-transparent hover:bg-white/5 hover:border-white/40 transition-all text-left group cursor-pointer">
-                <input 
-                  type="file" 
-                  accept=".obj" 
+                <input
+                  type="file"
+                  accept=".obj"
                   onChange={handleFileUpload}
                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                   title="Carregar modelo OBJ"
@@ -121,14 +121,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
                 </div>
               ) : (
                 projects.map(p => (
-                  <div 
+                  <div
                     key={p.id}
                     onClick={() => onLoadProject(p)}
                     className="relative group border border-white/10 bg-[#121214] hover:bg-[#18181b] hover:border-blue-500/50 p-6 rounded-3xl cursor-pointer transition-all flex flex-col shadow-lg"
                   >
                     <div className="flex justify-between items-start mb-6">
                       <div className="flex items-center gap-2 min-w-0 pr-2">
-                        <button 
+                        <button
                           onClick={(e) => handleRename(e, p.id, p.name)}
                           className="p-2 rounded-lg hover:bg-white/10 text-zinc-500 hover:text-blue-400 transition-colors"
                           title="Renomear Projeto"
@@ -137,7 +137,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
                         </button>
                         <h3 className="font-bold text-xl text-zinc-100 group-hover:text-blue-400 transition-colors truncate">{p.name}</h3>
                       </div>
-                      <button 
+                      <button
                         onClick={(e) => handleDelete(e, p.id)}
                         className="p-2.5 text-zinc-500 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all"
                         title="Excluir Projeto"
@@ -145,7 +145,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    
+
                     <div className="mt-auto flex items-center justify-between text-xs text-zinc-500">
                       <span className="flex items-center gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-lg">
                         <Box className="w-3.5 h-3.5" /> {p.modelName}

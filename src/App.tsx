@@ -13,7 +13,9 @@ import { ProjectManager } from '@/services/ProjectManager';
 import type { SavedProject } from '@/services/ProjectManager';
 import { TopHeader } from '@/components/ui-custom/TopHeader';
 import { LeftShortcutBar } from '@/components/ui-custom/LeftShortcutBar';
+import { ToolOptionsBar } from '@/components/ui-custom/ToolOptionsBar';
 import { LoadingOverlay } from '@/components/ui-custom/LoadingOverlay';
+import type { GradientSession } from '@/components/3d/PaintableMesh';
 import './App.css';
 
 export interface ModelPart {
@@ -27,6 +29,7 @@ function App() {
   const [brushSettings, setBrushSettings] = useState<BrushSettings>({
     size: 20,
     color: '#ff0000',
+    secondaryColor: '#1e40af',
     opacity: 1,
     hardness: 0.8,
     type: 'circle',
@@ -43,6 +46,7 @@ function App() {
     followPath: false,
     blurStrength: 1.0,
     smudgeStrength: 1.0,
+    gradientType: 'linear',
 
     // Metadata for V2
     id: 'default-round',
@@ -56,6 +60,10 @@ function App() {
   const [modelName, setModelName] = useState<string>('Suzanne');
   const [modelParts, setModelParts] = useState<ModelPart[]>([]);
   const [overlays, setOverlays] = useState<OverlayData[]>([]);
+  
+  const [gradientSession, setGradientSession] = useState<GradientSession | null>(null);
+  const layerControlsRef = useRef<any>(null);
+
 
   // Project Management State
   const [isDashboard, setIsDashboard] = useState(true);
@@ -254,6 +262,7 @@ function App() {
 
   const handleLayerControlsReady = useCallback((controls: any) => {
     setLayerControls(controls);
+    layerControlsRef.current = controls;
     if (initialLayersToLoadRef.current) {
       if (controls.importProjectLayersData) {
         controls.importProjectLayersData(initialLayersToLoadRef.current);
@@ -432,6 +441,13 @@ function App() {
               onRemove={handleRemoveOverlay}
             />
 
+            <ToolOptionsBar 
+              brushSettings={brushSettings}
+              setBrushSettings={setBrushSettings}
+              gradientSession={gradientSession}
+              setGradientSession={setGradientSession}
+            />
+
             {/* 3D Scene panel */}
             <div
               className="relative h-full"
@@ -457,6 +473,8 @@ function App() {
                 onLayerControlsReady={handleLayerControlsReady}
                 onColorPainted={handleColorPainted}
                 activeStencil={overlays.find(o => o.type === 'stencil' && o.visible)}
+                gradientSession={gradientSession}
+                setGradientSession={setGradientSession}
                 onLoadingProgress={(prog) => {
                   setLoadingProgress(prog);
                   if (prog >= 100) {

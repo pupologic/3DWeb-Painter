@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import type { GPULayer } from '@/hooks/useWebGLPaint';
-import { Layers, Plus, Trash2, Eye, EyeOff, ArrowUp, ArrowDown, Folder, FolderPlus, ChevronRight, ChevronDown, CornerUpLeft } from 'lucide-react';
+import { Layers, Plus, Trash2, Eye, EyeOff, ArrowUp, ArrowDown, Folder, FolderPlus, ChevronRight, ChevronDown, CornerUpLeft, Merge } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 
 interface LayerControls {
@@ -18,6 +18,8 @@ interface LayerControls {
   deleteLayerMask?: (id: string) => void;
   toggleLayerMask?: (id: string) => void;
   setEditingMask?: (id: string, editing: boolean) => void;
+  mergeLayer?: (id: string) => void;
+  mergeFolder?: (id: string) => void;
 }
 
 interface LayersPanelProps {
@@ -34,7 +36,11 @@ const blendModes = [
 export const LayersPanel: React.FC<LayersPanelProps> = ({ layerControls }) => {
   if (!layerControls) return null;
 
-  const { layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask } = layerControls;
+  const { 
+    layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, 
+    createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask,
+    mergeLayer, mergeFolder 
+  } = layerControls;
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -272,9 +278,30 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ layerControls }) => {
                   className="flex-shrink-0 text-gray-500 hover:text-red-400 disabled:opacity-30"
                   onClick={(e) => { e.stopPropagation(); removeLayer(layer.id); }}
                   disabled={layers.length <= 1 && !layer.isFolder}
+                  title="Remove"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
+                
+                {layer.isFolder ? (
+                  <button
+                    className="flex-shrink-0 text-zinc-500 hover:text-amber-400"
+                    onClick={(e) => { e.stopPropagation(); mergeFolder?.(layer.id); }}
+                    title="Merge Folder"
+                  >
+                    <Merge className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  index < layers.length - 1 && !layers[index+1].isFolder && (
+                    <button
+                      className="flex-shrink-0 text-zinc-500 hover:text-amber-400"
+                      onClick={(e) => { e.stopPropagation(); mergeLayer?.(layer.id); }}
+                      title="Merge Down"
+                    >
+                      <Merge className="w-3.5 h-3.5" />
+                    </button>
+                  )
+                )}
               </div>
             </div>
 

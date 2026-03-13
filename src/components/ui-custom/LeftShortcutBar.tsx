@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brush, Eraser, Droplet, Hand, Undo2, Redo2, ArrowRightLeft, Layers } from 'lucide-react';
+import { Brush, Eraser, Droplet, Hand, Undo2, Redo2, ArrowRightLeft, Layers, MousePointer2 } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ColorPicker } from '@/components/ui-custom/ColorPicker';
@@ -36,7 +36,7 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
     const temp = primaryColor;
     setPrimaryColor(secondaryColor);
     setSecondaryColor(temp);
-    setBrushSettings({ ...brushSettings, color: secondaryColor });
+    setBrushSettings({ ...brushSettings, color: secondaryColor, secondaryColor: temp });
   };
 
   const handleColorChange = (newColor: string, isPrimary: boolean) => {
@@ -45,6 +45,7 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
       setBrushSettings({ ...brushSettings, color: newColor });
     } else {
       setSecondaryColor(newColor);
+      setBrushSettings({ ...brushSettings, secondaryColor: newColor });
     }
   };
 
@@ -222,6 +223,13 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
           </div>
         </PopoverContent>
       </Popover>
+      <button 
+        onClick={() => setBrushSettings({...brushSettings, mode: 'gradient'})}
+        className={`p-2 rounded-xl transition-all ${brushSettings.mode === 'gradient' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        title="Gradient Tool"
+      >
+        <MousePointer2 className="w-5 h-5 rotate-45" />
+      </button>
       
       {/* Sliders */}
       <div className="w-6 h-36 py-2 flex justify-center" title="Brush Size">

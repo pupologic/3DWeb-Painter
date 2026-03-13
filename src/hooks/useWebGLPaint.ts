@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { BrushShaderMaterial } from '../components/3d/materials/BrushShaderMaterial';
 import { DilationShaderMaterial } from '../components/3d/materials/DilationShaderMaterial';
 import { CompositeShaderMaterial } from '../components/3d/materials/CompositeShaderMaterial';
+import { GradientShaderMaterial } from '../components/3d/materials/GradientShaderMaterial';
 import type { OverlayData } from '../components/ui-custom/OverlayManager';
 
 export interface BrushSettings {
@@ -14,7 +15,8 @@ export interface BrushSettings {
   hardness: number;
   type: 'circle' | 'square' | 'texture';
   textureId?: string | null;
-  mode: 'paint' | 'erase' | 'blur' | 'smudge';
+  mode: 'paint' | 'erase' | 'blur' | 'smudge' | 'gradient';
+  gradientType?: 'linear' | 'radial';
   blurStrength?: number;
   smudgeStrength?: number;
   spacing: number;
@@ -91,6 +93,7 @@ export function useWebGLPaint(
       depthWrite: false
     }),
     dilationMaterial: new DilationShaderMaterial(),
+    gradientMaterial: new GradientShaderMaterial(),
     
     compositeScene: new THREE.Scene(),
     compositeCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
@@ -146,6 +149,7 @@ export function useWebGLPaint(
     state.layers = []; // Reset on init
     
     state.decalMesh.material = state.brushMaterial;
+    state.decalMesh.frustumCulled = false;
     state.decalScene.add(state.decalMesh);
     state.compositeScene.add(state.compositeQuad);
 
@@ -421,130 +425,66 @@ export function useWebGLPaint(
 
     const smudgeDisplacement = new THREE.Vector2().subVectors(uv, state.lastHitUV).multiplyScalar(1.5);
 
-    state.brushMaterial.setBrush(
-      mode === 'erase' ? 'erase' : color, 
-      opacity * opacityPressure, 
-      worldPos, 
-      worldRadius, 
-      hardness, 
-      type === 'square',
-      brushTex,
-      normal,
-      angle,
-      stencilTex,
-      stencilMat,
-      vpMatrix,
-      stencilMode,
-      camera.position,
-      mode,
-      state.snapshotTarget?.texture || null,
-      smudgeDisplacement,
-      blurStrength || 1.0,
-      state.textureSize,
-      smudgeStrength !== undefined ? smudgeStrength : 1.0
-    );
-    
-    // Render
-    const oldRT = gl.getRenderTarget();
-    gl.autoClear = false;
-    const targetRT = (activeLayer.isEditingMask && activeLayer.maskTarget) ? activeLayer.maskTarget : activeLayer.target;
-    gl.setRenderTarget(targetRT);
-
-    const renderDecal = () => {
-      if (groupRef.current) {
-        groupRef.current.traverse((child) => {
-          if (child instanceof THREE.Mesh && child.visible) {
-            state.decalMesh.geometry = child.geometry;
-            child.matrixWorld.decompose(
-              state.decalMesh.position,
-              state.decalMesh.quaternion,
-              state.decalMesh.scale
-            );
-            gl.render(state.decalScene, state.decalCamera);
-          }
-        });
-      }
-    };
-
-    renderDecal();
-
-    // Advanced Symmetry
-    if (brushSettings.symmetryMode && brushSettings.symmetryMode !== 'none') {
-      const symMode = brushSettings.symmetryMode;
-      const axis = brushSettings.symmetryAxis || 'x';
+    if (mode !== 'gradient') {
+      state.brushMaterial.setBrush(
+        mode === 'erase' ? 'erase' : color, 
+        opacity * opacityPressure, 
+        worldPos, 
+        worldRadius, 
+        hardness, 
+        type === 'square',
+        brushTex,
+        normal,
+        angle,
+        stencilTex,
+        stencilMat,
+        vpMatrix,
+        stencilMode,
+        camera.position,
+        mode as any,
+        state.snapshotTarget?.texture || null,
+        smudgeDisplacement,
+        blurStrength || 1.0,
+        state.textureSize,
+        smudgeStrength !== undefined ? smudgeStrength : 1.0
+      );
       
-      if (symMode === 'mirror') {
-        const mirroredPos = worldPos.clone();
-        const mirroredNormal = normal.clone();
-        
-        if (axis === 'x') { mirroredPos.x *= -1; mirroredNormal.x *= -1; }
-        else if (axis === 'y') { mirroredPos.y *= -1; mirroredNormal.y *= -1; }
-        else if (axis === 'z') { mirroredPos.z *= -1; mirroredNormal.z *= -1; }
-        
-        // View-Projection Matrix
-        const vpMatrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      // Render
+      const oldRT = gl.getRenderTarget();
+      gl.autoClear = false;
+      const targetRT = (activeLayer.isEditingMask && activeLayer.maskTarget) ? activeLayer.maskTarget : activeLayer.target;
+      gl.setRenderTarget(targetRT);
 
-        state.brushMaterial.setBrush(
-          brushSettings.mode === 'erase' ? 'erase' : color, 
-          opacity * opacityPressure, 
-          mirroredPos, 
-          worldRadius, 
-          hardness, 
-          type === 'square',
-          brushTex,
-          mirroredNormal,
-          angle,
-          stencilTex,
-          stencilMat,
-          vpMatrix,
-          stencilMode,
-          camera.position,
-          mode,
-          state.snapshotTarget?.texture || null,
-          smudgeDisplacement,
-          blurStrength || 1.0,
-          state.textureSize,
-          smudgeStrength !== undefined ? smudgeStrength : 1.0
-        );
-        renderDecal();
-      } 
-      else if (symMode === 'radial') {
-        const points = brushSettings.radialPoints || 4;
-        const angleStep = (Math.PI * 2) / points;
+      const renderDecal = () => {
+        if (groupRef.current) {
+          groupRef.current.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.visible) {
+              state.decalMesh.geometry = child.geometry;
+              child.matrixWorld.decompose(
+                state.decalMesh.position,
+                state.decalMesh.quaternion,
+                state.decalMesh.scale
+              );
+              gl.render(state.decalScene, state.decalCamera);
+            }
+          });
+        }
+      };
+
+      renderDecal();
+
+      // Advanced Symmetry
+      if (brushSettings.symmetryMode && brushSettings.symmetryMode !== 'none') {
+        const symMode = brushSettings.symmetryMode;
+        const axis = brushSettings.symmetryAxis || 'x';
         
-        for (let i = 1; i < points; i++) {
-          const radialPos = worldPos.clone();
-          const radialNormal = normal.clone();
-          const theta = angleStep * i;
+        if (symMode === 'mirror') {
+          const mirroredPos = worldPos.clone();
+          const mirroredNormal = normal.clone();
           
-          if (axis === 'y') {
-            // Rotate around Y axis
-            const x = worldPos.x * Math.cos(theta) - worldPos.z * Math.sin(theta);
-            const z = worldPos.x * Math.sin(theta) + worldPos.z * Math.cos(theta);
-            radialPos.set(x, worldPos.y, z);
-            
-            const nx = normal.x * Math.cos(theta) - normal.z * Math.sin(theta);
-            const nz = normal.x * Math.sin(theta) + normal.z * Math.cos(theta);
-            radialNormal.set(nx, normal.y, nz);
-          } else if (axis === 'x') {
-            // Rotate around X axis
-            const y = worldPos.y * Math.cos(theta) - worldPos.z * Math.sin(theta);
-            const z = worldPos.y * Math.sin(theta) + worldPos.z * Math.cos(theta);
-            radialPos.set(worldPos.x, y, z);
-            
-            const ny = normal.y * Math.cos(theta) - normal.z * Math.sin(theta);
-            const nz = normal.y * Math.sin(theta) + normal.z * Math.cos(theta);
-            radialNormal.set(normal.x, ny, nz);
-          } else if (axis === 'z') {
-            // Rotate around Z axis
-            const x = worldPos.x * Math.cos(theta) - worldPos.y * Math.sin(theta);
-            const y = worldPos.x * Math.sin(theta) + worldPos.y * Math.cos(theta);
-            radialPos.set(x, y, worldPos.z);
-            
-            const nx = normal.x * Math.cos(theta) - normal.y * Math.sin(theta);
-            const ny = normal.x * Math.sin(theta) + normal.y * Math.cos(theta);
-            radialNormal.set(nx, ny, normal.z);
-          }
+          if (axis === 'x') { mirroredPos.x *= -1; mirroredNormal.x *= -1; }
+          else if (axis === 'y') { mirroredPos.y *= -1; mirroredNormal.y *= -1; }
+          else if (axis === 'z') { mirroredPos.z *= -1; mirroredNormal.z *= -1; }
           
           // View-Projection Matrix
           const vpMatrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -552,19 +492,19 @@ export function useWebGLPaint(
           state.brushMaterial.setBrush(
             brushSettings.mode === 'erase' ? 'erase' : color, 
             opacity * opacityPressure, 
-            radialPos, 
+            mirroredPos, 
             worldRadius, 
             hardness, 
             type === 'square',
             brushTex,
-            radialNormal,
+            mirroredNormal,
             angle,
             stencilTex,
             stencilMat,
             vpMatrix,
             stencilMode,
             camera.position,
-            mode,
+            mode as any,
             state.snapshotTarget?.texture || null,
             smudgeDisplacement,
             blurStrength || 1.0,
@@ -572,14 +512,79 @@ export function useWebGLPaint(
             smudgeStrength !== undefined ? smudgeStrength : 1.0
           );
           renderDecal();
+        } 
+        else if (symMode === 'radial') {
+          const points = brushSettings.radialPoints || 4;
+          const angleStep = (Math.PI * 2) / points;
+          
+          for (let i = 1; i < points; i++) {
+            const radialPos = worldPos.clone();
+            const radialNormal = normal.clone();
+            const theta = angleStep * i;
+            
+            if (axis === 'y') {
+              // Rotate around Y axis
+              const x = worldPos.x * Math.cos(theta) - worldPos.z * Math.sin(theta);
+              const z = worldPos.x * Math.sin(theta) + worldPos.z * Math.cos(theta);
+              radialPos.set(x, worldPos.y, z);
+              
+              const nx = normal.x * Math.cos(theta) - normal.z * Math.sin(theta);
+              const nz = normal.x * Math.sin(theta) + normal.z * Math.cos(theta);
+              radialNormal.set(nx, normal.y, nz);
+            } else if (axis === 'x') {
+              // Rotate around X axis
+              const y = worldPos.y * Math.cos(theta) - worldPos.z * Math.sin(theta);
+              const z = worldPos.y * Math.sin(theta) + worldPos.z * Math.cos(theta);
+              radialPos.set(worldPos.x, y, z);
+              
+              const ny = normal.y * Math.cos(theta) - normal.z * Math.sin(theta);
+              const nz = normal.y * Math.sin(theta) + normal.z * Math.cos(theta);
+              radialNormal.set(normal.x, ny, nz);
+            } else if (axis === 'z') {
+              // Rotate around Z axis
+              const x = worldPos.x * Math.cos(theta) - worldPos.y * Math.sin(theta);
+              const y = worldPos.x * Math.sin(theta) + worldPos.y * Math.cos(theta);
+              radialPos.set(x, y, worldPos.z);
+              
+              const nx = normal.x * Math.cos(theta) - normal.y * Math.sin(theta);
+              const ny = normal.x * Math.sin(theta) + normal.y * Math.cos(theta);
+              radialNormal.set(nx, ny, normal.z);
+            }
+            
+            // View-Projection Matrix
+            const vpMatrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+
+            state.brushMaterial.setBrush(
+              brushSettings.mode === 'erase' ? 'erase' : color, 
+              opacity * opacityPressure, 
+              radialPos, 
+              worldRadius, 
+              hardness, 
+              type === 'square',
+              brushTex,
+              radialNormal,
+              angle,
+              stencilTex,
+              stencilMat,
+              vpMatrix,
+              stencilMode,
+              camera.position,
+              mode as any,
+              state.snapshotTarget?.texture || null,
+              smudgeDisplacement,
+              blurStrength || 1.0,
+              state.textureSize,
+              smudgeStrength !== undefined ? smudgeStrength : 1.0
+            );
+            renderDecal();
+          }
         }
       }
+
+      gl.setRenderTarget(oldRT);
+      gl.autoClear = true;
+      state.needsComposite = true;
     }
-
-
-    gl.setRenderTarget(oldRT);
-    gl.autoClear = true;
-    state.needsComposite = true;
   }, [brushSettings, gl, activeStencil, camera, canvasSize.height, groupRef]);
 
   const startPainting = useCallback((intersection: THREE.Intersection, pressure: number = 1.0) => {
@@ -983,9 +988,6 @@ export function useWebGLPaint(
     }
   }, [brushSettings.type, brushSettings.textureId]);
 
-  // Provide texture out
-  const texture = stateRef.current.dilatedTarget?.texture || null;
-  const previewCanvas = stateRef.current.previewCanvas;
 
   const addFolder = useCallback((nameArg: any = 'New Folder') => {
     const name = (typeof nameArg === 'string') ? nameArg : 'New Folder';
@@ -1181,6 +1183,165 @@ export function useWebGLPaint(
       return newLayers;
     });
   }, []);
+
+  const mergeLayer = useCallback((id: string) => {
+    setLayers(prev => {
+      const idx = prev.findIndex(l => l.id === id);
+      if (idx < 0 || idx === prev.length - 1) return prev; 
+
+      // Find the next layer below that is not a folder
+      let nextBelowIdx = -1;
+      for (let i = idx + 1; i < prev.length; i++) {
+        if (!prev[i].isFolder) {
+          nextBelowIdx = i;
+          break;
+        }
+      }
+
+      if (nextBelowIdx === -1) return prev;
+
+      const topLayer = prev[idx];
+      const bottomLayer = prev[nextBelowIdx];
+
+      if (!topLayer.target || !bottomLayer.target) return prev;
+
+      // Ensure we are working on the bottom layer for undo
+      const oldActiveId = activeLayerId;
+      setActiveLayerId(bottomLayer.id);
+      saveUndoState();
+      
+      const oldRT = gl.getRenderTarget();
+      gl.setRenderTarget(bottomLayer.target);
+      const oldAutoClear = gl.autoClear;
+      gl.autoClear = false;
+
+      let mat = stateRef.current.compositeMaterials.get(topLayer.id);
+      if (!mat) {
+        mat = new CompositeShaderMaterial();
+        stateRef.current.compositeMaterials.set(topLayer.id, mat);
+      }
+      
+      if (topLayer.maskEnabled && topLayer.maskTarget) {
+          mat.setLayerMasked(topLayer.target.texture, topLayer.maskTarget.texture, topLayer.opacity, topLayer.blendMode);
+      } else {
+          mat.setLayer(topLayer.target.texture, topLayer.opacity, topLayer.blendMode);
+      }
+
+      stateRef.current.compositeQuad.material = mat;
+      gl.render(stateRef.current.compositeScene, stateRef.current.compositeCamera);
+      
+      gl.autoClear = oldAutoClear;
+      gl.setRenderTarget(oldRT);
+
+      // Clean up top layer
+      topLayer.target.dispose();
+      if (topLayer.maskTarget) topLayer.maskTarget.dispose();
+
+      const updated = prev.filter(l => l.id !== id);
+      stateRef.current.layers = updated;
+      stateRef.current.needsComposite = true;
+      
+      // If we merged the active layer, set the bottom one as active
+      if (oldActiveId === id) {
+        setActiveLayerId(bottomLayer.id);
+      } else {
+        setActiveLayerId(oldActiveId);
+      }
+
+      return updated;
+    });
+  }, [gl, saveUndoState, activeLayerId]);
+
+  const mergeFolder = useCallback((folderId: string) => {
+    setLayers(prev => {
+      const folder = prev.find(l => l.id === folderId);
+      if (!folder || !folder.isFolder) return prev;
+
+      const children = prev.filter(l => l.parentId === folderId && !l.isFolder);
+      if (children.length === 0) {
+        return prev.filter(l => l.id !== folderId);
+      }
+
+      const state = stateRef.current;
+      const mergedTarget = new THREE.WebGLRenderTarget(state.textureSize, state.textureSize, {
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        format: THREE.RGBAFormat,
+        generateMipmaps: false,
+      });
+
+      const oldRT = gl.getRenderTarget();
+      gl.setRenderTarget(mergedTarget);
+      gl.setClearColor(0x000000, 0);
+      gl.clear();
+      
+      const oldAutoClear = gl.autoClear;
+      gl.autoClear = false;
+
+      // Composite visible children back-to-front
+      const sortedChildren = [...children].reverse();
+      for (const child of sortedChildren) {
+          if (!child.target || !child.visible) continue;
+          let mat = state.compositeMaterials.get(child.id);
+          if (!mat) {
+            mat = new CompositeShaderMaterial();
+            state.compositeMaterials.set(child.id, mat);
+          }
+          if (child.maskEnabled && child.maskTarget) {
+            mat.setLayerMasked(child.target.texture, child.maskTarget.texture, child.opacity, child.blendMode);
+          } else {
+            mat.setLayer(child.target.texture, child.opacity, child.blendMode);
+          }
+          state.compositeQuad.material = mat;
+          gl.render(state.compositeScene, state.compositeCamera);
+      }
+
+      gl.autoClear = oldAutoClear;
+      gl.setRenderTarget(oldRT);
+
+      const newLayer: GPULayer = {
+        id: THREE.MathUtils.generateUUID(),
+        name: folder.name + " (Merged)",
+        visible: true,
+        opacity: 1,
+        blendMode: THREE.NormalBlending,
+        target: mergedTarget,
+        maskTarget: null,
+        maskEnabled: false,
+        isEditingMask: false,
+        parentId: folder.parentId
+      };
+
+      const childIds = children.map(c => c.id);
+      const folderIdx = prev.findIndex(l => l.id === folderId);
+      
+      const idsToRemove = [folderId, ...childIds];
+      const finalLayers: GPULayer[] = [];
+      let inserted = false;
+      
+      for (let i = 0; i < prev.length; i++) {
+        if (i === folderIdx) {
+           finalLayers.push(newLayer);
+           inserted = true;
+        }
+        if (!idsToRemove.includes(prev[i].id)) {
+           finalLayers.push(prev[i]);
+        }
+      }
+      
+      if (!inserted) finalLayers.unshift(newLayer);
+
+      children.forEach(c => {
+        if (c.target) c.target.dispose();
+        if (c.maskTarget) c.maskTarget.dispose();
+      });
+
+      stateRef.current.layers = finalLayers;
+      stateRef.current.needsComposite = true;
+      setActiveLayerId(newLayer.id);
+      return finalLayers;
+    });
+  }, [gl]);
 
   const clearCanvas = useCallback(() => {
     const active = getActiveLayer();
@@ -1653,7 +1814,136 @@ export function useWebGLPaint(
     return `#${r}${g}${b}`;
   }, [gl]);
 
-  return {
+  const renderGradient = useCallback((start: THREE.Vector3, end: THREE.Vector3) => {
+    const state = stateRef.current;
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+    if (!activeLayer || !activeLayer.target || !groupRef.current) return;
+
+    saveUndoState();
+
+    const color1 = brushSettings.color;
+    const color2 = brushSettings.secondaryColor || '#000000';
+    const type = brushSettings.gradientType || 'linear';
+    const opacity = brushSettings.opacity;
+    
+    // Get camera direction for plane projection
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+
+    state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity);
+
+    const oldRT = gl.getRenderTarget();
+    gl.autoClear = false;
+    gl.setRenderTarget(activeLayer.target);
+
+    groupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.visible) {
+        state.decalMesh.geometry = child.geometry;
+        state.decalMesh.matrixAutoUpdate = false;
+        state.decalMesh.matrixWorld.copy(child.matrixWorld);
+        
+        const originalMat = state.decalMesh.material;
+        state.decalMesh.material = state.gradientMaterial;
+        gl.render(state.decalScene, state.decalCamera);
+        state.decalMesh.material = originalMat;
+      }
+    });
+
+    gl.setRenderTarget(oldRT);
+    gl.autoClear = true;
+    state.needsComposite = true;
+    setLayers([...state.layers]);
+  }, [activeLayerId, brushSettings, gl, camera, saveUndoState, groupRef]);
+
+  const startGradientPreview = useCallback(() => {
+    const state = stateRef.current;
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+    if (!activeLayer || !activeLayer.target) return;
+    
+    const isMask = activeLayer.isEditingMask && !!activeLayer.maskTarget;
+    const target = isMask ? activeLayer.maskTarget! : activeLayer.target!;
+    
+    // Take snapshot
+    const oldRT = gl.getRenderTarget();
+    gl.setRenderTarget(state.snapshotTarget);
+    gl.setClearColor(0x000000, 0);
+    gl.clear();
+    
+    const blitMat = new THREE.MeshBasicMaterial({ 
+      map: target.texture, 
+      depthTest: false, 
+      depthWrite: false,
+      transparent: true,
+      blending: THREE.NoBlending
+    });
+    const oldMat = state.compositeQuad.material;
+    state.compositeQuad.material = blitMat;
+    gl.render(state.compositeScene, state.compositeCamera);
+    state.compositeQuad.material = oldMat;
+    blitMat.dispose();
+    gl.setRenderTarget(oldRT);
+    state.hasSnapshot = true;
+  }, [activeLayerId, gl]);
+
+  const previewGradient = useCallback((start: THREE.Vector3, end: THREE.Vector3) => {
+    const state = stateRef.current;
+    const activeLayer = state.layers.find(l => l.id === activeLayerId);
+    if (!activeLayer || !activeLayer.target || !state.hasSnapshot || !groupRef.current) return;
+
+    const isMask = activeLayer.isEditingMask && !!activeLayer.maskTarget;
+    const target = isMask ? activeLayer.maskTarget! : activeLayer.target!;
+
+    // 1. Restore from snapshot
+    const oldRT = gl.getRenderTarget();
+    gl.setRenderTarget(target);
+    gl.setClearColor(0x000000, 0);
+    gl.clear();
+    
+    const blitMat = new THREE.MeshBasicMaterial({ 
+      map: state.snapshotTarget?.texture, 
+      depthTest: false, 
+      depthWrite: false,
+      transparent: true,
+      blending: THREE.NoBlending
+    });
+    const oldMat = state.compositeQuad.material;
+    state.compositeQuad.material = blitMat;
+    gl.render(state.compositeScene, state.compositeCamera);
+    state.compositeQuad.material = oldMat;
+    blitMat.dispose();
+
+    // 2. Render Gradient
+    const color1 = brushSettings.color;
+    const color2 = brushSettings.secondaryColor || '#000000';
+    const type = brushSettings.gradientType || 'linear';
+    const opacity = brushSettings.opacity;
+    
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity);
+
+    gl.autoClear = false;
+    groupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.visible) {
+        state.decalMesh.geometry = child.geometry;
+        state.decalMesh.matrixAutoUpdate = false;
+        state.decalMesh.matrixWorld.copy(child.matrixWorld);
+        const originalMat = state.decalMesh.material;
+        state.decalMesh.material = state.gradientMaterial;
+        gl.render(state.decalScene, state.decalCamera);
+        state.decalMesh.material = originalMat;
+      }
+    });
+
+    gl.setRenderTarget(oldRT);
+    gl.autoClear = true;
+    state.needsComposite = true;
+  }, [activeLayerId, brushSettings, gl, camera, groupRef]);
+
+  const texture = stateRef.current.dilatedTarget?.texture || null;
+  const previewCanvas = stateRef.current.previewCanvas;
+
+  return useMemo(() => ({
     initPaintSystem,
     startPainting,
     paint,
@@ -1683,5 +1973,46 @@ export function useWebGLPaint(
     setEditingMask,
     exportProjectLayersData,
     importProjectLayersData,
-  };
+    mergeLayer,
+    mergeFolder,
+    renderGradient,
+    startGradientPreview,
+    previewGradient
+  }), [
+    initPaintSystem,
+    startPainting,
+    paint,
+    stopPainting,
+    texture,
+    previewCanvas,
+    syncPreviewCanvas,
+    layers,
+    activeLayerId,
+    addLayer,
+    addFolder,
+    removeLayer,
+    updateLayer,
+    setActiveLayerId,
+    moveLayer,
+    reorderLayer,
+    clearCanvas,
+    fillCanvas,
+    undo,
+    redo,
+    exportTexture,
+    sampleColor,
+    createLayerMask,
+    deleteLayerMask,
+    toggleLayerMask,
+    setEditingMask,
+    exportProjectLayersData,
+    importProjectLayersData,
+    mergeLayer,
+    mergeFolder,
+    renderGradient,
+    startGradientPreview,
+    previewGradient,
+    camera,
+    gl
+  ]);
 }

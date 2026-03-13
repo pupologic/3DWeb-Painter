@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { PaintableMesh } from './PaintableMesh';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
 import type { OverlayData } from '@/components/ui-custom/OverlayManager';
+import type { GradientSession } from './PaintableMesh';
 
 interface Scene3DProps {
   brushSettings: BrushSettings;
@@ -34,6 +35,9 @@ interface Scene3DProps {
   onColorPainted?: (color: string) => void;
   onLoadingProgress?: (progress: number, status: string) => void;
   isModelVisible?: boolean;
+  // Gradient Props
+  gradientSession?: GradientSession | null;
+  setGradientSession?: React.Dispatch<React.SetStateAction<GradientSession | null>>;
 }
 
 const CameraController = ({ focalLength }: { focalLength: number }) => {
@@ -49,11 +53,9 @@ const CameraController = ({ focalLength }: { focalLength: number }) => {
 
   return null;
 };
-
 const EnvRotator = ({ envRotation }: { envRotation: number }) => {
   const { scene } = useThree();
   React.useEffect(() => {
-    // In newer Three.js versions, environmentRotation is a Euler which requires .set()
     if (scene.environmentRotation) {
       scene.environmentRotation.set(0, envRotation, 0, 'XYZ');
     }
@@ -86,7 +88,9 @@ export const Scene3D: React.FC<Scene3DProps> = ({
   activeStencil,
   onColorPainted,
   onLoadingProgress,
-  isModelVisible = true
+  isModelVisible = true,
+  gradientSession,
+  setGradientSession,
 }) => {
   const [cameraPosition] = useState<[number, number, number]>([0, 0, 8]);
   const controlsRef = useRef<any>(null);
@@ -170,6 +174,8 @@ export const Scene3D: React.FC<Scene3DProps> = ({
           onColorPainted={onColorPainted}
           onLoadingProgress={onLoadingProgress}
           isVisible={isModelVisible}
+          gradientSession={gradientSession}
+          setGradientSession={setGradientSession}
         />
 
         {/* Lights (all grouped so rotation applies consistently to the lighting setup) */}

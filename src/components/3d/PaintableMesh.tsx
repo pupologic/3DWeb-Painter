@@ -22,6 +22,14 @@ const MATCAPS_URLS: Record<string, string> = {
   'softlight_grey.png': softlightGrey,
 };
 
+export interface GradientSession {
+  start: THREE.Vector3;
+  end: THREE.Vector3;
+  mid: THREE.Vector3;
+  isLocked: boolean;
+  isCreating?: boolean;
+}
+
 interface PaintableMeshProps {
   brushSettings: BrushSettings;
   modelParts: any[];
@@ -45,6 +53,10 @@ interface PaintableMeshProps {
   onColorPainted?: (color: string) => void;
   onLoadingProgress?: (progress: number, status: string) => void;
   isVisible?: boolean;
+  
+  // New Gradient Props
+  gradientSession?: GradientSession | null;
+  setGradientSession?: React.Dispatch<React.SetStateAction<GradientSession | null>>;
 }
 
 export const PaintableMesh: React.FC<PaintableMeshProps> = ({
@@ -65,7 +77,10 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   activeStencil,
   onColorPainted,
   onLoadingProgress,
-  isVisible = true
+  isVisible = true,
+  // New Gradient Props
+  gradientSession,
+  setGradientSession,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
   const { camera, gl, size } = useThree();
@@ -79,6 +94,8 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     texture, previewCanvas,
     layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, clearCanvas, fillCanvas, undo, redo, exportTexture, sampleColor,
     createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask,
+    mergeLayer, mergeFolder,
+    renderGradient, startGradientPreview, previewGradient,
     exportProjectLayersData, importProjectLayersData
   } = useWebGLPaint(
     groupRef,
@@ -104,6 +121,8 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, 
         clearCanvas, fillCanvas, undo, redo, exportTexture, 
         createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask,
+        mergeLayer, mergeFolder,
+        renderGradient, startGradientPreview, previewGradient,
         exportProjectLayersData, 
         importProjectLayersData: (data: any[]) => {
           setLoadingProgress(p => ({ ...p, layers: 0 }));
@@ -113,7 +132,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         }
       });
     }
-  }, [layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, clearCanvas, fillCanvas, undo, redo, exportTexture, onLayerControlsReady, createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask, exportProjectLayersData, importProjectLayersData]);
+  }, [layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, clearCanvas, fillCanvas, undo, redo, exportTexture, onLayerControlsReady, createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask, exportProjectLayersData, importProjectLayersData, renderGradient, startGradientPreview, previewGradient]);
 
   // Initialize texture on mount and when resolution changes
   useEffect(() => {
@@ -224,22 +243,67 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     const interaction = latestInteraction.current;
     if (!interaction) return;
 
+    if (brushSettings.mode === 'gradient') return; // Don't paint during move for gradient
     updateCursor(interaction.hit, interaction.pressure);
     paint(interaction.hit, interaction.pressure);
-  }, [paint, updateCursor]);
+  }, [paint, updateCursor, brushSettings.mode]);
+
 
   const handlePointerDown = useCallback(
     (event: any) => {
-      event.stopPropagation();
       const nativeEvent = event.nativeEvent as PointerEvent;
       
-      // If we clicked on the background or use secondary buttons, we are orbiting
+      // Secondary buttons always orbit
       if (nativeEvent.buttons > 1) {
         isOrbitingRef.current = true;
         setCursor(null);
         return;
       }
+
+      if ((brushSettings.mode as any) === 'gradient') {
+        const nativeEvent = event.nativeEvent as PointerEvent;
+        const isLocked = gradientSession?.isLocked ?? true; // Default to locked (painting mode)
+        
+        if (!isLocked) {
+          // Navigation mode: Do not stop propagation, let OrbitControls handle it
+          return;
+        }
+
+        event.stopPropagation();
+        
+        // Manual ray calculation to be safe and independent of R3F event raycaster
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2(
+          (event.clientX / gl.domElement.clientWidth) * 2 - 1,
+          -(event.clientY / gl.domElement.clientHeight) * 2 + 1
+        );
+        raycaster.setFromCamera(mouse, camera);
+
+        // Always use plane projection at the origin, facing the camera for start point
+        const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+          camera.getWorldDirection(new THREE.Vector3()).negate(),
+          new THREE.Vector3(0, 0, 0)
+        );
+        
+        const intersect = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(plane, intersect)) {
+          const point = intersect.clone();
+          setGradientSession?.({
+            start: point,
+            end: point.clone(),
+            mid: point.clone(),
+            isLocked: false,
+            isCreating: true
+          });
+          
+          startGradientPreview?.();
+          onPaintingChange?.(true);
+          gl.domElement.setPointerCapture(nativeEvent.pointerId);
+        }
+        return;
+      }
       
+      event.stopPropagation();
       isOrbitingRef.current = false;
       const hit = event.intersections[0] as THREE.Intersection;
       if (!hit) return;
@@ -261,17 +325,12 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       updateCursor(hit, pressure);
       gl.domElement.setPointerCapture(nativeEvent.pointerId);
     },
-    [startPainting, updateCursor, onPaintingChange, gl, sampleColor, brushSettings, onBrushSettingsChange]
+    [startPainting, updateCursor, onPaintingChange, gl, sampleColor, brushSettings.mode, onBrushSettingsChange, gradientSession, setGradientSession]
   );
 
   const handlePointerMove = useCallback(
     (event: any) => {
       const hit = event.intersections[0] as THREE.Intersection;
-      if (!hit) {
-        setCursor(null);
-        return;
-      }
-      
       const nativeEvent = event.nativeEvent as PointerEvent;
 
       // Skip cursor updates if we are orbiting or using secondary buttons
@@ -282,13 +341,15 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
 
       let pressure = nativeEvent.pointerType === 'pen' ? nativeEvent.pressure : 1.0;
       if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
-      
+
+      if (brushSettings.mode as any === 'gradient') return;
+
       latestInteraction.current = { hit, pressure };
       if (pointerRafRef.current === 0) {
         pointerRafRef.current = requestAnimationFrame(processPointerEvent);
       }
     },
-    [processPointerEvent]
+    [processPointerEvent, brushSettings.mode, gradientSession, camera]
   );
 
   const handlePointerUp = useCallback(
@@ -303,6 +364,11 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       isOrbitingRef.current = false;
       isPickingRef.current = false;
 
+      if ((brushSettings.mode as any) === 'gradient') {
+        // PointerUp is now handled by the global listener to ensure 100% reliability
+        return;
+      }
+
       onPaintingChange?.(false);
       stopPainting();
       
@@ -313,13 +379,69 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         // Ignore if pointer capture was not set
       }
     },
-    [gl, stopPainting, onPaintingChange]
+    [gl, stopPainting, onPaintingChange, gradientSession, brushSettings.mode]
   );
 
   const handlePointerLeave = useCallback((event: any) => {
     handlePointerUp(event);
     setCursor(null);
   }, [handlePointerUp]);
+
+  // Global pointerup listener to ensure we stop creating/dragging even if mouse is off-mesh
+  useEffect(() => {
+    const isInteracting = (brushSettings.mode as any) === 'gradient' && gradientSession?.isCreating;
+    if (!isInteracting) return;
+
+    const onGlobalPointerMove = (e: PointerEvent) => {
+      if (!gradientSession?.isCreating || !setGradientSession || !previewGradient) return;
+
+      // Project onto plane using screen coordinates
+      const raycaster = new THREE.Raycaster();
+      const mouse = new THREE.Vector2(
+        (e.clientX / window.innerWidth) * 2 - 1,
+        -(e.clientY / window.innerHeight) * 2 + 1
+      );
+      raycaster.setFromCamera(mouse, camera);
+
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+        camera.getWorldDirection(new THREE.Vector3()).negate(),
+        gradientSession.start
+      );
+      
+      const intersect = new THREE.Vector3();
+      if (raycaster.ray.intersectPlane(plane, intersect)) {
+        const point = intersect.clone();
+        setGradientSession(prev => {
+          if (!prev) return null;
+          const newSession = { ...prev, end: point, mid: new THREE.Vector3().lerpVectors(prev.start, point, 0.5) };
+          previewGradient(newSession.start, newSession.end);
+          return newSession;
+        });
+      }
+    };
+
+    const onGlobalPointerUp = (e: PointerEvent) => {
+      setGradientSession?.(prev => {
+        if (prev?.isCreating) {
+          // Auto apply on final release
+          renderGradient?.(prev.start, prev.end);
+          return null;
+        }
+        return prev;
+      });
+      onPaintingChange?.(false);
+      try {
+        gl.domElement.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    };
+
+    window.addEventListener('pointermove', onGlobalPointerMove);
+    window.addEventListener('pointerup', onGlobalPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onGlobalPointerMove);
+      window.removeEventListener('pointerup', onGlobalPointerUp);
+    };
+  }, [brushSettings.mode, gradientSession?.isCreating, gradientSession?.start, setGradientSession, onPaintingChange, gl, camera, previewGradient, renderGradient]);
 
   useEffect(() => {
     return () => {
@@ -329,83 +451,88 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     };
   }, []);
 
-  // Geometry is passed directly to the mesh props to avoid R3F <primitive> attach/detach issues across multiple meshes
-
   return (
     <>
+      {/* Background click-catcher for off-mesh interaction - Only active in gradient mode */}
+      {(brushSettings.mode as any) === 'gradient' && (
+        <mesh 
+          onPointerDown={handlePointerDown}
+          // We don't need to see it, just catch events
+          visible={false}
+        >
+          <planeGeometry args={[100, 100]} />
+        </mesh>
+      )}
+
       <group 
         position={modelTransform?.position} 
         rotation={modelTransform?.rotation} 
         scale={modelTransform?.scale}
         visible={isVisible}
       >
-        {/* Main paintable group containing all visible submeshes */}
         <group ref={groupRef}>
-        {modelParts.length > 0 ? (
-          modelParts.map((part) => {
-            if (!part.visible) return null;
-            return (
-              <mesh
-                key={part.id}
-                geometry={part.geometry}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerLeave={handlePointerLeave}
-                onPointerCancel={handlePointerUp}
-              />
-            );
-          })
-        ) : (
-          <mesh
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerLeave}
-            onPointerCancel={handlePointerUp}
-          >
-            <sphereGeometry args={[2, 128, 128]} />
-          </mesh>
-        )}
-      </group>
-
-      {/* Wireframe overlay group */}
-      {showWireframe && (
-        <group>
           {modelParts.length > 0 ? (
             modelParts.map((part) => {
               if (!part.visible) return null;
               return (
-                <mesh key={`wire-${part.id}`} geometry={part.geometry}>
-                  <meshBasicMaterial
-                    color="#00ff00"
-                    wireframe
-                    transparent
-                    opacity={0.3}
-                    depthTest={false}
-                  />
-                </mesh>
+                <mesh
+                  key={part.id}
+                  geometry={part.geometry}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerLeave={handlePointerLeave}
+                  onPointerCancel={handlePointerUp}
+                />
               );
             })
           ) : (
-            <mesh>
+            <mesh
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerLeave}
+              onPointerCancel={handlePointerUp}
+            >
               <sphereGeometry args={[2, 128, 128]} />
-              <meshBasicMaterial
-                color="#00ff00"
-                wireframe
-                transparent
-                opacity={0.3}
-              />
             </mesh>
           )}
         </group>
-      )}
 
+        {showWireframe && (
+          <group>
+            {modelParts.length > 0 ? (
+              modelParts.map((part) => {
+                if (!part.visible) return null;
+                return (
+                  <mesh key={`wire-${part.id}`} geometry={part.geometry}>
+                    <meshBasicMaterial
+                      color="#00ff00"
+                      wireframe
+                      transparent
+                      opacity={0.3}
+                      depthTest={false}
+                    />
+                  </mesh>
+                );
+              })
+            ) : (
+              <mesh>
+                <sphereGeometry args={[2, 128, 128]} />
+                <meshBasicMaterial
+                  color="#00ff00"
+                  wireframe
+                  transparent
+                  opacity={0.3}
+                />
+              </mesh>
+            )}
+          </group>
+        )}
       </group>
 
-      {cursor && isVisible && (
+      {cursor && isVisible && brushSettings.mode !== 'gradient' && (
         <group>
-          {/* Main Cursor */}
           <mesh 
             position={cursor.point} 
             quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), cursor.normal)}
@@ -421,7 +548,6 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
             />
           </mesh>
 
-          {/* Advanced Symmetry Indicators */}
           {(() => {
             if (!brushSettings.symmetryMode || brushSettings.symmetryMode === 'none') return null;
             
@@ -464,7 +590,6 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
                 position={p.pos} 
                 quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), p.normal.normalize())}
               >
-                {/* Outer Ring */}
                 <mesh>
                   <ringGeometry args={[cursor.radius * 0.95, cursor.radius, 32]} />
                   <meshBasicMaterial 
@@ -476,8 +601,6 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
                     side={THREE.DoubleSide} 
                   />
                 </mesh>
-                
-                {/* Inner Dot for center precise location */}
                 <mesh>
                   <circleGeometry args={[cursor.radius * 0.05, 16]} />
                   <meshBasicMaterial 
@@ -493,7 +616,6 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
             ));
           })()}
 
-          {/* Lazy Mouse Indicator */}
           {brushSettings.lazyMouse && cursor.lazyPoint && (
              <group>
                <mesh position={cursor.lazyPoint} quaternion={new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), cursor.normal)}>
@@ -510,6 +632,45 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
                />
              </group>
           )}
+        </group>
+      )}
+
+      {(brushSettings.mode as any) === 'gradient' && gradientSession && gradientSession.isCreating && (
+        <group renderOrder={999}>
+          {/* Main Direction Line - Thin White */}
+          <Line 
+            points={[gradientSession.start, gradientSession.end]} 
+            color="#ffffff" 
+            lineWidth={1}
+            transparent
+            opacity={0.6}
+            depthTest={false}
+          />
+          
+          {/* Start Handle - White Circle (Smaller) */}
+          <mesh position={gradientSession.start}>
+            <sphereGeometry args={[0.008, 16, 16]} />
+            <meshBasicMaterial color="#ffffff" depthTest={false} transparent opacity={1} />
+          </mesh>
+
+          {/* End Handle - Blue Ring (Stroke Style) */}
+          <mesh position={gradientSession.end}>
+            {/* Outer White Glow/Stroke effect */}
+            <mesh>
+              <sphereGeometry args={[0.014, 16, 16]} />
+              <meshBasicMaterial color="#ffffff" depthTest={false} transparent opacity={0.3} />
+            </mesh>
+            {/* Main Blue Ring */}
+            <mesh>
+              <sphereGeometry args={[0.012, 16, 16]} />
+              <meshBasicMaterial color="#3b82f6" depthTest={false} transparent opacity={1} />
+            </mesh>
+            {/* Inner Hollow Center (Simulation) */}
+            <mesh scale={[0.8, 0.8, 0.8]}>
+               <sphereGeometry args={[0.012, 16, 16]} />
+               <meshBasicMaterial color="#121214" depthTest={false} transparent opacity={1} />
+            </mesh>
+          </mesh>
         </group>
       )}
     </>
