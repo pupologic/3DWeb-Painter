@@ -109,7 +109,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const handleRenameBrush = (brushId: string, newName: string) => {
     setCustomBrushes((prev: BrushSettings[]) => prev.map(b => b.id === brushId ? { ...b, name: newName } : b));
     if (brushSettings.id === brushId) {
-      setBrushSettings(prev => ({ ...prev, name: newName }));
+      setBrushSettings((prev: BrushSettings) => ({ ...prev, name: newName }));
     }
   };
 
