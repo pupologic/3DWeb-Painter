@@ -70,6 +70,12 @@ export interface TopHeaderProps {
   setMetalness: (v: number) => void;
   colorHistory: string[];
   layerControls: any;
+  saoEnabled: boolean;
+  setSaoEnabled: (v: boolean) => void;
+  saoIntensity: number;
+  setSaoIntensity: (v: number) => void;
+  saoScale: number;
+  setSaoScale: (v: number) => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -82,7 +88,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   matcapName, setMatcapName, lightSetup, setLightSetup, lightIntensity, setLightIntensity,
   showGrid, setShowGrid, focalLength, setFocalLength, envIntensity, setEnvIntensity,
   objectColor, setObjectColor, roughness, setRoughness, metalness, setMetalness,
-  colorHistory, layerControls
+  colorHistory, layerControls,
+  saoEnabled, setSaoEnabled, saoIntensity, setSaoIntensity, saoScale, setSaoScale
 }) => {
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [customBrushes, setCustomBrushes] = useState<BrushSettings[]>(() => {
@@ -292,6 +299,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
               metalness={metalness}
               onMetalnessChange={setMetalness}
               colorHistory={colorHistory}
+              saoEnabled={saoEnabled}
+              onSaoEnabledChange={setSaoEnabled}
+              saoIntensity={saoIntensity}
+              onSaoIntensityChange={setSaoIntensity}
+              saoScale={saoScale}
+              onSaoScaleChange={setSaoScale}
             />
           </PopoverContent>
         </Popover>

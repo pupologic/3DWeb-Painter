@@ -16,6 +16,8 @@ const vertexShader = `
 const fragmentShader = `
   uniform vec3 uColor1;
   uniform vec3 uColor2;
+  uniform float uAlpha1;
+  uniform float uAlpha2;
   uniform vec3 uStartPoint;
   uniform vec3 uEndPoint;
   uniform vec3 uPlaneNormal;
@@ -31,7 +33,6 @@ const fragmentShader = `
     float t = 0.0;
     
     // Project world position onto the camera plane defined by uStartPoint and uPlaneNormal
-    // This ensures the gradient is "front-parallel" and doesn't depend on mesh depth
     vec3 projectedPos = vWorldPos - dot(vWorldPos - uStartPoint, uPlaneNormal) * uPlaneNormal;
     
     if (uType == 0) {
@@ -62,8 +63,9 @@ const fragmentShader = `
     }
 
     vec3 finalColor = mix(uColor1, uColor2, t);
+    float finalAlpha = mix(uAlpha1, uAlpha2, t) * uOpacity;
     
-    gl_FragColor = vec4(finalColor, uOpacity);
+    gl_FragColor = vec4(finalColor, finalAlpha);
   }
 `;
 
@@ -75,6 +77,8 @@ export class GradientShaderMaterial extends THREE.ShaderMaterial {
       uniforms: {
         uColor1: { value: new THREE.Color('#ff0000') },
         uColor2: { value: new THREE.Color('#0000ff') },
+        uAlpha1: { value: 1.0 },
+        uAlpha2: { value: 1.0 },
         uStartPoint: { value: new THREE.Vector3(0, 0, 0) },
         uEndPoint: { value: new THREE.Vector3(0, 1, 0) },
         uPlaneNormal: { value: new THREE.Vector3(0, 0, 1) },
@@ -97,10 +101,14 @@ export class GradientShaderMaterial extends THREE.ShaderMaterial {
     type: 'linear' | 'radial',
     cameraDirection: THREE.Vector3,
     opacity: number = 1.0,
+    alpha1: number = 1.0,
+    alpha2: number = 1.0,
     midpoint: number = 0.5
   ) {
     this.uniforms.uColor1.value.set(color1);
     this.uniforms.uColor2.value.set(color2);
+    this.uniforms.uAlpha1.value = alpha1;
+    this.uniforms.uAlpha2.value = alpha2;
     this.uniforms.uStartPoint.value.copy(start);
     this.uniforms.uEndPoint.value.copy(end);
     this.uniforms.uPlaneNormal.value.copy(cameraDirection).normalize();

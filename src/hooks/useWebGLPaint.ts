@@ -29,6 +29,8 @@ export interface BrushSettings {
   symmetryAxis?: 'x' | 'y' | 'z';
   radialPoints?: number;
   followPath?: boolean;
+  gradientColor1Transparent?: boolean;
+  gradientColor2Transparent?: boolean;
   
   // Brush System V2
   id: string;
@@ -39,19 +41,23 @@ export interface BrushSettings {
   pressureCurve?: number; // 0.5 = soft, 1.0 = linear, 2.0 = firm
 };
 
+export type PBRMapType = 'albedo' | 'metalness' | 'roughness' | 'emissive' | 'alpha';
+
 export interface GPULayer {
   id: string;
   name: string;
   visible: boolean;
   opacity: number;
-  blendMode: THREE.Blending;
+  intensity?: number; // For emissive boost
+  blendMode: number; // 0-8 modes, 9: Erase
   target: THREE.WebGLRenderTarget | null; // Null for folders
   isFolder?: boolean;
   parentId?: string; // For UI organization
-  clippingParentId?: string; // DEPRECATED: For alpha masking
+  mapType: PBRMapType;
   maskTarget?: THREE.WebGLRenderTarget | null;
   maskEnabled?: boolean;
   isEditingMask?: boolean;
+  premultipliedAlpha?: boolean;
 }
 
 const MAX_HISTORY = 10;
@@ -75,11 +81,23 @@ export function useWebGLPaint(
     isPainting: false,
     needsComposite: false,
     compositeTarget: null as THREE.WebGLRenderTarget | null,
+    compositeTargetB: null as THREE.WebGLRenderTarget | null,
     dilatedTarget: null as THREE.WebGLRenderTarget | null,
     uvMaskTarget: null as THREE.WebGLRenderTarget | null,
     needsUVMaskUpdate: false,
+    lastCompositeResult: null as THREE.WebGLRenderTarget | null,
+    
+    // PBR Channel Results
+    pbrTargets: {
+      albedo: null as THREE.WebGLRenderTarget | null,
+      metalness: null as THREE.WebGLRenderTarget | null,
+      roughness: null as THREE.WebGLRenderTarget | null,
+      emissive: null as THREE.WebGLRenderTarget | null,
+      alpha: null as THREE.WebGLRenderTarget | null,
+    },
     
     layers: [] as GPULayer[], // Ref-based source of truth for renderer
+    dirtyChannels: new Set<PBRMapType>(['albedo', 'metalness', 'roughness', 'emissive', 'alpha']), // Mark all dirty on init
     
     decalScene: new THREE.Scene(),
     decalCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
@@ -129,7 +147,13 @@ export function useWebGLPaint(
   // ---- Setup ----
   const initPaintSystem = useCallback((size: number) => {
     const state = stateRef.current;
+    // Avoid redundant initialization if size is the same and we have layers
+    if (state.compositeTarget && state.textureSize === size && state.layers.length > 0) {
+      return;
+    }
+
     if (state.compositeTarget) state.compositeTarget.dispose();
+    if (state.compositeTargetB) state.compositeTargetB.dispose();
     if (state.dilatedTarget) state.dilatedTarget.dispose();
     if (state.uvMaskTarget) state.uvMaskTarget.dispose();
     if (state.snapshotTarget) state.snapshotTarget.dispose();
@@ -142,11 +166,32 @@ export function useWebGLPaint(
       generateMipmaps: false,
     };
     state.compositeTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
+    state.compositeTargetB = new THREE.WebGLRenderTarget(size, size, targetOpts);
     state.dilatedTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
     state.uvMaskTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
     state.snapshotTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
 
-    state.layers = []; // Reset on init
+    state.pbrTargets = {
+      albedo: new THREE.WebGLRenderTarget(size, size, targetOpts),
+      metalness: new THREE.WebGLRenderTarget(size, size, targetOpts),
+      roughness: new THREE.WebGLRenderTarget(size, size, targetOpts),
+      emissive: new THREE.WebGLRenderTarget(size, size, targetOpts),
+      alpha: new THREE.WebGLRenderTarget(size, size, targetOpts),
+    };
+
+    // Clear layers if resolution changed
+    if (state.textureSize !== size) {
+      state.layers.forEach(l => {
+        l.target?.dispose();
+        l.maskTarget?.dispose();
+      });
+      state.layers = [];
+    }
+
+    // ONLY add base layer if there are NO layers
+    if (state.layers.length === 0) {
+      addLayer('Base Layer');
+    }
     
     state.decalMesh.material = state.brushMaterial;
     state.decalMesh.frustumCulled = false;
@@ -163,9 +208,13 @@ export function useWebGLPaint(
     if (state.previewBlitMaterial) state.previewBlitMaterial.dispose();
     state.previewBlitMaterial = new THREE.MeshBasicMaterial({ transparent: false, depthTest: false, depthWrite: false });
 
-    addLayer('Base Layer');
     state.needsUVMaskUpdate = true;
-    state.needsComposite = true;
+    stateRef.current.dirtyChannels.add('albedo');
+    stateRef.current.dirtyChannels.add('metalness');
+    stateRef.current.dirtyChannels.add('roughness');
+    stateRef.current.dirtyChannels.add('emissive');
+    stateRef.current.dirtyChannels.add('alpha');
+    stateRef.current.needsComposite = true;
   }, []);
 
   const cloneTarget = useCallback((source: THREE.WebGLRenderTarget) => {
@@ -190,6 +239,20 @@ export function useWebGLPaint(
     renderer.setRenderTarget(currentTarget);
     return clone;
   }, [gl]);
+
+  const markChannelDirty = useCallback((type: PBRMapType | 'all') => {
+    const state = stateRef.current;
+    if (type === 'all') {
+      state.dirtyChannels.add('albedo');
+      state.dirtyChannels.add('metalness');
+      state.dirtyChannels.add('roughness');
+      state.dirtyChannels.add('emissive');
+      state.dirtyChannels.add('alpha');
+    } else {
+      state.dirtyChannels.add(type);
+    }
+    state.needsComposite = true;
+  }, []);
 
   // ---- Layer Management ----
   const getActiveLayer = useCallback(() => {
@@ -226,8 +289,10 @@ export function useWebGLPaint(
       name,
       visible: true,
       opacity: 1,
-      blendMode: THREE.NormalBlending,
+      intensity: 1,
+      blendMode: 0, // Normal
       target: newTarget,
+      mapType: 'albedo',
       maskTarget: null,
       maskEnabled: false,
       isEditingMask: false,
@@ -236,7 +301,7 @@ export function useWebGLPaint(
     setLayers(prev => {
       const updated = [newLayer, ...prev];
       state.layers = updated;
-      state.needsComposite = true;
+      markChannelDirty(newLayer.mapType);
       return updated;
     });
     
@@ -583,9 +648,9 @@ export function useWebGLPaint(
 
       gl.setRenderTarget(oldRT);
       gl.autoClear = true;
-      state.needsComposite = true;
+      markChannelDirty(activeLayer.mapType);
     }
-  }, [brushSettings, gl, activeStencil, camera, canvasSize.height, groupRef]);
+  }, [brushSettings, gl, activeStencil, camera, canvasSize.height, groupRef, markChannelDirty]);
 
   const startPainting = useCallback((intersection: THREE.Intersection, pressure: number = 1.0) => {
     const state = stateRef.current;
@@ -831,6 +896,28 @@ export function useWebGLPaint(
     (state.previewCanvas as any).version = ((state.previewCanvas as any).version || 0) + 1;
   }, [gl]);
 
+  // Check if a layer is visible by traversing up its folder parents
+  const isLayerVisuallyVisible = useCallback((layer: GPULayer, allLayers: GPULayer[]) => {
+    if (!layer.visible) return false;
+    
+    let current = layer;
+    const visited = new Set<string>([layer.id]);
+    
+    while (current.parentId) {
+      if (visited.has(current.parentId)) break; // Cycle detection
+      
+      const parentId = current.parentId;
+      const parent = allLayers.find(l => l.id === parentId);
+      
+      if (!parent) break;
+      if (!parent.visible) return false;
+      
+      visited.add(parentId);
+      current = parent;
+    }
+    return true;
+  }, []);
+
   // ---- RAF Compositor ----
   const compositeAllLayers = useCallback(() => {
     const state = stateRef.current;
@@ -863,57 +950,99 @@ export function useWebGLPaint(
     const oldAutoClear = gl.autoClear;
     gl.autoClear = false;
 
-    gl.setRenderTarget(state.compositeTarget);
-    gl.setClearColor(0xffffff, 1); 
-    gl.clear();
-
-    // Render layers back-to-front (as index 0 is visually the top layer in UI)
-    for (let i = compositeLayers.length - 1; i >= 0; i--) {
-      const layer = compositeLayers[i];
-      if (layer.isFolder || !layer.target) continue;
-      if (!isLayerVisuallyVisible(layer, compositeLayers)) continue;
-      
-      let mat = state.compositeMaterials.get(layer.id);
-      if (!mat) {
-        mat = new CompositeShaderMaterial();
-        state.compositeMaterials.set(layer.id, mat);
-      }
-      
-      // Check for layer mask
-      if (layer.maskEnabled && layer.maskTarget) {
-          mat.setLayerMasked(layer.target.texture, layer.maskTarget.texture, layer.opacity, layer.blendMode);
-      } else {
-          mat.setLayer(layer.target.texture, layer.opacity, layer.blendMode);
-      }
-
-      state.compositeQuad.material = mat;
-      gl.render(state.compositeScene, state.compositeCamera);
+    // --- Channel-based Compositing ---
+    const channelsToUpdate = Array.from(state.dirtyChannels);
+    if (channelsToUpdate.length === 0) {
+      gl.autoClear = oldAutoClear;
+      gl.setRenderTarget(oldRT);
+      state.needsComposite = false;
+      return;
     }
+
+    for (const channel of channelsToUpdate) {
+      if (!state.compositeTarget || !state.compositeTargetB) continue;
+      
+      let currentSrc = state.compositeTarget;
+      let currentDst = state.compositeTargetB;
+
+      // Clear initial background for channel
+      gl.setRenderTarget(currentSrc);
+      if (channel === 'metalness' || channel === 'emissive') {
+        gl.setClearColor(0x000000, 1);
+      } else if (channel === 'roughness') {
+        gl.setClearColor(0x999999, 1); // standard roughness 0.6ish
+      } else if (channel === 'alpha') {
+        gl.setClearColor(0xffffff, 1); // Full opaque base
+      } else {
+        gl.setClearColor(0xffffff, 1);
+      }
+      gl.clear();
+
+      // Render layers back-to-front
+      for (let i = compositeLayers.length - 1; i >= 0; i--) {
+        const layer = compositeLayers[i];
+        if (layer.mapType !== channel || layer.isFolder || !layer.target) continue;
+        if (!isLayerVisuallyVisible(layer, compositeLayers)) continue;
+        
+        let mat = state.compositeMaterials.get(layer.id);
+        if (!mat) {
+          mat = new CompositeShaderMaterial();
+          state.compositeMaterials.set(layer.id, mat);
+        }
+        
+        gl.setRenderTarget(currentDst);
+        gl.clear();
+
+        if (layer.maskEnabled && layer.maskTarget) {
+            mat.setLayerMasked(layer.target.texture, currentSrc.texture, layer.maskTarget.texture, layer.opacity, layer.blendMode, layer.intensity || 1.0);
+        } else {
+            mat.setLayer(layer.target.texture, currentSrc.texture, layer.opacity, layer.blendMode, layer.intensity || 1.0);
+        }
+
+        state.compositeQuad.material = mat;
+        gl.render(state.compositeScene, state.compositeCamera);
+
+        const temp = currentSrc;
+        currentSrc = currentDst;
+        currentDst = temp;
+      }
+
+      // Store result in PBR target
+      const targetRT = state.pbrTargets[channel];
+      if (!targetRT) continue;
+      
+      // Run Dilation for this channel
+      if (state.uvMaskTarget) {
+          gl.setRenderTarget(targetRT);
+          gl.setClearColor(0x000000, 0);
+          gl.clear();
+          
+          // Optimization: Skip heavy dilation during painting for non-albedo channels
+          let currentRadius = (state.isPainting) ? 2.0 : 16.0;
+          if (state.isPainting && channel !== 'albedo') {
+            currentRadius = 0.5; // Minimal dilation
+          }
+
+          state.dilationMaterial.setMap(currentSrc.texture, (state.uvMaskTarget as THREE.WebGLRenderTarget).texture, state.textureSize, state.textureSize, currentRadius);
+          state.compositeQuad.material = state.dilationMaterial;
+          gl.render(state.compositeScene, state.compositeCamera);
+      } else {
+          // Blit directly if no UV mask
+          gl.setRenderTarget(targetRT);
+          const blitMat = new THREE.MeshBasicMaterial({ map: currentSrc.texture, transparent: true, blending: THREE.NoBlending });
+          state.compositeQuad.material = blitMat;
+          gl.render(state.compositeScene, state.compositeCamera);
+          blitMat.dispose();
+      }
+    }
+
+    state.dirtyChannels.clear();
+    state.lastCompositeResult = state.pbrTargets.albedo; 
     
     gl.autoClear = oldAutoClear;
-    
-    // --- Dilation (Edge Padding) Pass ---
-    if (state.uvMaskTarget) {
-      gl.setRenderTarget(state.dilatedTarget);
-      gl.setClearColor(0x000000, 0);
-      gl.clear();
-      
-      // Use low radius during painting, full radius during idle or stagger step 1
-      const isFinalizing = state.staggerStep === 1;
-      const currentRadius = (state.isPainting) ? 2.0 : 16.0;
-      
-      state.dilationMaterial.setMap(state.compositeTarget.texture, state.uvMaskTarget.texture, state.textureSize, state.textureSize, currentRadius);
-      state.compositeQuad.material = state.dilationMaterial;
-      gl.render(state.compositeScene, state.compositeCamera);
-      
-      if (isFinalizing) state.staggerStep = 2; // Move to next stagger step
-    }
-    
-    gl.setRenderTarget(null);
+    gl.setRenderTarget(oldRT);
     state.needsComposite = false;
-    
-    // We handle SyncPreview separately in the loop for staggering
-  }, [gl, groupRef, layers]);
+  }, [gl, isLayerVisuallyVisible]);
 
   useEffect(() => {
     let animId: number;
@@ -935,6 +1064,7 @@ export function useWebGLPaint(
     return () => {
       const state = stateRef.current;
       state.compositeTarget?.dispose();
+      state.compositeTargetB?.dispose();
       state.dilatedTarget?.dispose();
       state.uvMaskTarget?.dispose();
       state.previewTarget?.dispose();
@@ -946,33 +1076,12 @@ export function useWebGLPaint(
     };
   }, []);
 
-  // Check if a layer is visible by traversing up its folder parents
-  const isLayerVisuallyVisible = useCallback((layer: GPULayer, allLayers: GPULayer[]) => {
-    if (!layer.visible) return false;
-    
-    let current = layer;
-    const visited = new Set<string>([layer.id]);
-    
-    while (current.parentId) {
-      if (visited.has(current.parentId)) break; // Cycle detection
-      
-      const parentId = current.parentId;
-      const parent = allLayers.find(l => l.id === parentId);
-      
-      if (!parent) break;
-      if (!parent.visible) return false;
-      
-      visited.add(parentId);
-      current = parent;
-    }
-    return true;
-  }, []);
 
   // Sync geometry UV masks when parts change
   useEffect(() => {
     stateRef.current.needsUVMaskUpdate = true;
-    stateRef.current.needsComposite = true;
-  }, [groupRef, ...updateDependencies]);
+    markChannelDirty('all');
+  }, [groupRef, markChannelDirty, ...updateDependencies]);
   
   // Load Texture Mask on Demand
   useEffect(() => {
@@ -996,18 +1105,19 @@ export function useWebGLPaint(
       name,
       visible: true,
       opacity: 1,
-      blendMode: THREE.NormalBlending,
+      blendMode: 0,
       target: null,
-      isFolder: true
+      isFolder: true,
+      mapType: 'albedo'
     };
 
     setLayers(prev => {
       const updated = [newFolder, ...prev];
       stateRef.current.layers = updated;
-      stateRef.current.needsComposite = true;
+      markChannelDirty('all'); // Folders can affect everything below
       return updated;
     });
-  }, []);
+  }, [markChannelDirty]);
 
   // ---- Missing Layer Operations ----
   const removeLayer = useCallback((id: string) => {
@@ -1048,21 +1158,36 @@ export function useWebGLPaint(
           setActiveLayerId(null);
         }
       }
-      stateRef.current.needsComposite = true;
+      markChannelDirty('all');
       return remaining;
     });
-  }, [activeLayerId]);
+  }, [activeLayerId, markChannelDirty]);
 
   const updateLayer = useCallback((id: string, updates: Partial<GPULayer>) => {
     setLayers(prev => {
+      const target = prev.find(l => l.id === id);
       const updated = prev.map(l => (l.id === id ? { ...l, ...updates } : l));
       stateRef.current.layers = updated;
-      if (updates.visible !== undefined || updates.opacity !== undefined || updates.blendMode !== undefined || updates.parentId !== undefined || updates.maskEnabled !== undefined) {
-        stateRef.current.needsComposite = true;
+      
+      if (target && (
+        updates.visible !== undefined || 
+        updates.opacity !== undefined || 
+        updates.blendMode !== undefined || 
+        updates.parentId !== undefined || 
+        updates.maskEnabled !== undefined ||
+        updates.intensity !== undefined ||
+        updates.mapType !== undefined
+      )) {
+        if (updates.mapType !== undefined) {
+          markChannelDirty(target.mapType);
+          markChannelDirty(updates.mapType);
+        } else {
+          markChannelDirty(target.mapType);
+        }
       }
       return updated;
     });
-  }, []);
+  }, [markChannelDirty]);
 
   const createLayerMask = useCallback((id: string) => {
     const state = stateRef.current;
@@ -1221,10 +1346,12 @@ export function useWebGLPaint(
         stateRef.current.compositeMaterials.set(topLayer.id, mat);
       }
       
-      if (topLayer.maskEnabled && topLayer.maskTarget) {
-          mat.setLayerMasked(topLayer.target.texture, topLayer.maskTarget.texture, topLayer.opacity, topLayer.blendMode);
-      } else {
-          mat.setLayer(topLayer.target.texture, topLayer.opacity, topLayer.blendMode);
+      if (topLayer && topLayer.target) {
+        if (topLayer.maskEnabled && topLayer.maskTarget) {
+          mat.setLayerMasked(topLayer.target.texture, bottomLayer.target.texture, topLayer.maskTarget.texture, topLayer.opacity, topLayer.blendMode as any);
+        } else {
+          mat.setLayer(topLayer.target.texture, bottomLayer.target.texture, topLayer.opacity, topLayer.blendMode as any);
+        }
       }
 
       stateRef.current.compositeQuad.material = mat;
@@ -1280,6 +1407,13 @@ export function useWebGLPaint(
 
       // Composite visible children back-to-front
       const sortedChildren = [...children].reverse();
+      let currentResult = new THREE.WebGLRenderTarget(state.textureSize, state.textureSize); // Temporary base
+      const dummyRT = new THREE.WebGLRenderTarget(state.textureSize, state.textureSize);
+      
+      gl.setRenderTarget(currentResult);
+      gl.setClearColor(0x000000, 0);
+      gl.clear();
+
       for (const child of sortedChildren) {
           if (!child.target || !child.visible) continue;
           let mat = state.compositeMaterials.get(child.id);
@@ -1287,14 +1421,35 @@ export function useWebGLPaint(
             mat = new CompositeShaderMaterial();
             state.compositeMaterials.set(child.id, mat);
           }
+          
+          gl.setRenderTarget(dummyRT);
+          gl.clear();
+
           if (child.maskEnabled && child.maskTarget) {
-            mat.setLayerMasked(child.target.texture, child.maskTarget.texture, child.opacity, child.blendMode);
+            mat.setLayerMasked(child.target.texture, currentResult.texture, child.maskTarget.texture, child.opacity, child.blendMode as any);
           } else {
-            mat.setLayer(child.target.texture, child.opacity, child.blendMode);
+            mat.setLayer(child.target.texture, currentResult.texture, child.opacity, child.blendMode as any);
           }
           state.compositeQuad.material = mat;
           gl.render(state.compositeScene, state.compositeCamera);
+          
+          // Copy dummyRT to currentResult
+          gl.setRenderTarget(mergedTarget);
+          gl.clear();
+          const blitMat = new THREE.MeshBasicMaterial({ map: dummyRT.texture, transparent: true });
+          state.compositeQuad.material = blitMat;
+          gl.render(state.compositeScene, state.compositeCamera);
+          
+          // For the next iteration, mergedTarget is the new background
+          // This is a bit inefficient for one-off merge, but keeps logic consistent
+          gl.setRenderTarget(currentResult);
+          gl.clear();
+          gl.render(state.compositeScene, state.compositeCamera);
+          blitMat.dispose();
       }
+      
+      currentResult.dispose();
+      dummyRT.dispose();
 
       gl.autoClear = oldAutoClear;
       gl.setRenderTarget(oldRT);
@@ -1304,8 +1459,9 @@ export function useWebGLPaint(
         name: folder.name + " (Merged)",
         visible: true,
         opacity: 1,
-        blendMode: THREE.NormalBlending,
+        blendMode: 0, // Normal
         target: mergedTarget,
+        mapType: folder.mapType,
         maskTarget: null,
         maskEnabled: false,
         isEditingMask: false,
@@ -1478,13 +1634,12 @@ export function useWebGLPaint(
     const oldAutoClear = gl.autoClear;
     gl.autoClear = false;
 
-    // --- Special Export Pass (Transparent if PNG) ---
-    gl.setRenderTarget(state.compositeTarget);
-    if (format === 'png') {
-        gl.setClearColor(0x000000, 0); 
-    } else {
-        gl.setClearColor(0xffffff, 1);
-    }
+    // --- Reuse main compositing logic concepts ---
+    let currentSrc = new THREE.WebGLRenderTarget(state.textureSize, state.textureSize, { format: THREE.RGBAFormat });
+    let currentDst = new THREE.WebGLRenderTarget(state.textureSize, state.textureSize, { format: THREE.RGBAFormat });
+
+    gl.setRenderTarget(currentSrc);
+    gl.setClearColor(format === 'png' ? 0x000000 : 0xffffff, format === 'png' ? 0 : 1);
     gl.clear();
 
     for (let i = layers.length - 1; i >= 0; i--) {
@@ -1493,17 +1648,32 @@ export function useWebGLPaint(
       
       let mat = state.compositeMaterials.get(layer.id);
       if (mat) {
-        // Re-apply properties in case they were modified elsewhere before export
-        if (layer.maskEnabled && layer.maskTarget) {
-            mat.setLayerMasked(layer.target.texture, layer.maskTarget.texture, layer.opacity, layer.blendMode);
-        } else {
-            mat.setLayer(layer.target.texture, layer.opacity, layer.blendMode);
-        }
+          gl.setRenderTarget(currentDst);
+          gl.clear();
+          if (layer.maskEnabled && layer.maskTarget) {
+            mat.setLayerMasked(layer.target.texture, currentSrc.texture, layer.maskTarget.texture, layer.opacity, layer.blendMode as any);
+          } else {
+            mat.setLayer(layer.target.texture, currentSrc.texture, layer.opacity, layer.blendMode as any);
+          }
         
         state.compositeQuad.material = mat;
         gl.render(state.compositeScene, state.compositeCamera);
+
+        const temp = currentSrc;
+        currentSrc = currentDst;
+        currentDst = temp;
       }
     }
+    
+    // Final result is in currentSrc, copy to state.compositeTarget for legacy reasons/dilation
+    gl.setRenderTarget(state.compositeTarget);
+    gl.clear();
+    const finalBlit = new THREE.MeshBasicMaterial({ map: currentSrc.texture, transparent: true });
+    state.compositeQuad.material = finalBlit;
+    gl.render(state.compositeScene, state.compositeCamera);
+    finalBlit.dispose();
+    currentSrc.dispose();
+    currentDst.dispose();
 
     // Run dilation on this new composite
     if (state.uvMaskTarget) {
@@ -1607,10 +1777,12 @@ export function useWebGLPaint(
             name: l.name,
             visible: l.visible,
             opacity: l.opacity,
+            intensity: l.intensity || 1,
             blendMode: l.blendMode,
             isFolder: !!l.isFolder,
             parentId: l.parentId,
             maskEnabled: l.maskEnabled,
+            mapType: l.mapType,
             hasMask: !!l.maskTarget,
             targetBlobUrl: l.target ? exportTarget(l.target) : undefined,
             maskBlobUrl: l.maskTarget ? exportTarget(l.maskTarget) : undefined
@@ -1774,12 +1946,14 @@ export function useWebGLPaint(
             name: lData.name,
             visible: lData.visible,
             opacity: lData.opacity,
+            intensity: lData.intensity || 1,
             blendMode: lData.blendMode,
             isFolder: lData.isFolder,
             parentId: lData.parentId,
             maskEnabled: lData.maskEnabled,
             target,
             maskTarget,
+            mapType: lData.mapType || 'albedo',
             isEditingMask: false
         });
     }
@@ -1825,12 +1999,14 @@ export function useWebGLPaint(
     const color2 = brushSettings.secondaryColor || '#000000';
     const type = brushSettings.gradientType || 'linear';
     const opacity = brushSettings.opacity;
+    const alpha1 = brushSettings.gradientColor1Transparent ? 0.0 : 1.0;
+    const alpha2 = brushSettings.gradientColor2Transparent ? 0.0 : 1.0;
     
     // Get camera direction for plane projection
     const camDir = new THREE.Vector3();
     camera.getWorldDirection(camDir);
 
-    state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity);
+    state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity, alpha1, alpha2);
 
     const oldRT = gl.getRenderTarget();
     gl.autoClear = false;
@@ -1917,10 +2093,12 @@ export function useWebGLPaint(
     const color2 = brushSettings.secondaryColor || '#000000';
     const type = brushSettings.gradientType || 'linear';
     const opacity = brushSettings.opacity;
+    const alpha1 = brushSettings.gradientColor1Transparent ? 0.0 : 1.0;
+    const alpha2 = brushSettings.gradientColor2Transparent ? 0.0 : 1.0;
     
     const camDir = new THREE.Vector3();
     camera.getWorldDirection(camDir);
-    state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity);
+    state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity, alpha1, alpha2);
 
     gl.autoClear = false;
     groupRef.current.traverse((child) => {
@@ -1940,6 +2118,7 @@ export function useWebGLPaint(
     state.needsComposite = true;
   }, [activeLayerId, brushSettings, gl, camera, groupRef]);
 
+
   const texture = stateRef.current.dilatedTarget?.texture || null;
   const previewCanvas = stateRef.current.previewCanvas;
 
@@ -1948,8 +2127,15 @@ export function useWebGLPaint(
     startPainting,
     paint,
     stopPainting,
-    textureSize: { width: stateRef.current.textureSize, height: stateRef.current.textureSize },
     texture,
+    pbrTextures: {
+      albedo: stateRef.current.pbrTargets.albedo?.texture || null,
+      metalness: stateRef.current.pbrTargets.metalness?.texture || null,
+      roughness: stateRef.current.pbrTargets.roughness?.texture || null,
+      emissive: stateRef.current.pbrTargets.emissive?.texture || null,
+      alpha: stateRef.current.pbrTargets.alpha?.texture || null,
+    },
+    textureSize: { width: stateRef.current.textureSize, height: stateRef.current.textureSize },
     previewCanvas,
     syncPreviewCanvas,
     layers,
@@ -1977,7 +2163,8 @@ export function useWebGLPaint(
     mergeFolder,
     renderGradient,
     startGradientPreview,
-    previewGradient
+    previewGradient,
+    markChannelDirty,
   }), [
     initPaintSystem,
     startPainting,
@@ -2012,6 +2199,7 @@ export function useWebGLPaint(
     renderGradient,
     startGradientPreview,
     previewGradient,
+    markChannelDirty,
     camera,
     gl
   ]);

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { Palette, Eclipse } from 'lucide-react';
+import { Palette, Eclipse, Sparkles } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { ColorPicker } from './ColorPicker';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
@@ -13,6 +14,12 @@ interface MaterialPanelProps {
   metalness: number;
   onMetalnessChange: (val: number) => void;
   colorHistory?: string[];
+  saoEnabled: boolean;
+  onSaoEnabledChange: (v: boolean) => void;
+  saoIntensity: number;
+  onSaoIntensityChange: (v: number) => void;
+  saoScale: number;
+  onSaoScaleChange: (v: number) => void;
 }
 
 export const MaterialPanel: React.FC<MaterialPanelProps> = ({
@@ -22,7 +29,13 @@ export const MaterialPanel: React.FC<MaterialPanelProps> = ({
   onRoughnessChange,
   metalness,
   onMetalnessChange,
-  colorHistory = []
+  colorHistory = [],
+  saoEnabled,
+  onSaoEnabledChange,
+  saoIntensity,
+  onSaoIntensityChange,
+  saoScale,
+  onSaoScaleChange
 }) => {
   return (
     <div className="space-y-6 p-5 bg-[#09090b] rounded-xl border border-white/5 shadow-lg">
@@ -89,6 +102,55 @@ export const MaterialPanel: React.FC<MaterialPanelProps> = ({
         </div>
       </div>
       
+      <div className="space-y-4 pt-4 border-t border-white/5">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-zinc-100 text-xs font-semibold flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              Ambient Occlusion
+            </Label>
+            <p className="text-[10px] text-zinc-500">Realça as sombras nos detalhes 3D</p>
+          </div>
+          <Switch 
+            checked={saoEnabled}
+            onCheckedChange={onSaoEnabledChange}
+          />
+        </div>
+
+        {saoEnabled && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Intensidade</Label>
+                <span className="text-zinc-500 font-mono text-[10px]">{Math.round(saoIntensity * 100)}%</span>
+              </div>
+              <Slider
+                value={[saoIntensity]}
+                onValueChange={([val]) => onSaoIntensityChange(val)}
+                min={0}
+                max={10}
+                step={0.1}
+                className="w-full"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Escala (Alcance)</Label>
+                <span className="text-zinc-500 font-mono text-[10px]">{saoScale.toFixed(1)}x</span>
+              </div>
+              <Slider
+                value={[saoScale]}
+                onValueChange={([val]) => onSaoScaleChange(val)}
+                min={0.1}
+                max={10.0}
+                step={0.1}
+                className="w-full"
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
     </div>
   );

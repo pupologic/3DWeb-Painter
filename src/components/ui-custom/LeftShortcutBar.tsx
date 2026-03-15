@@ -50,14 +50,14 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
   };
 
   return (
-    <div className="absolute top-1/2 -translate-y-1/2 left-4 bg-[#121214]/90 backdrop-blur-md rounded-2xl py-6 px-2.5 border border-white/10 shadow-3xl flex flex-col items-center gap-3 z-20">
+    <div className="absolute top-1/2 -translate-y-1/2 left-2 md:left-4 bg-[#121214]/90 backdrop-blur-md rounded-2xl py-3 md:py-6 px-1.5 md:px-2.5 border border-white/10 shadow-3xl flex flex-col items-center gap-2 md:gap-3 z-20">
       
       {/* Layer/Mask Toggle */}
       <div className="flex flex-col items-center gap-1 group">
-        <div className="relative w-10 h-10">
+        <div className="relative w-8 h-8 md:w-10 md:h-10">
           {/* Mask Square (Back) */}
           <div 
-            className={`absolute right-0 bottom-0 w-7 h-7 rounded shadow-sm border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
+            className={`absolute right-0 bottom-0 w-6 h-6 md:w-7 md:h-7 rounded shadow-sm border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
             onClick={() => {
               if (isMaskEditing) return;
               
@@ -86,7 +86,7 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
           </div>
           {/* Layer Square (Front) */}
           <div 
-            className={`absolute left-0 top-0 w-7 h-7 rounded shadow-md border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${!isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
+            className={`absolute left-0 top-0 w-6 h-6 md:w-7 md:h-7 rounded shadow-md border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${!isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
             onClick={() => {
               if (!isMaskEditing) return;
 
@@ -111,11 +111,11 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
 
       {/* Dual Color Swatches */}
       <div className="flex flex-col items-center gap-1 relative mt-1">
-        <div className="relative w-10 h-10">
+        <div className="relative w-8 h-8 md:w-10 md:h-10">
           <Popover>
             <PopoverTrigger className="absolute right-0 bottom-0 z-0">
               <div 
-                className="w-7 h-7 rounded-sm shadow-sm border border-white/20 cursor-pointer hover:scale-110 transition-transform"
+                className="w-5 h-5 md:w-7 md:h-7 rounded-sm shadow-sm border border-white/20 cursor-pointer hover:scale-110 transition-transform"
                 style={{ backgroundColor: secondaryColor }}
                 title="Cor Secundária"
               />
@@ -132,7 +132,7 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
           <Popover>
             <PopoverTrigger className="absolute left-0 top-0 z-10">
               <div 
-                className="w-7 h-7 rounded-sm shadow-md border border-white/40 cursor-pointer hover:scale-110 transition-transform"
+                className="w-5 h-5 md:w-7 md:h-7 rounded-sm shadow-md border border-white/40 cursor-pointer hover:scale-110 transition-transform"
                 style={{ backgroundColor: primaryColor }}
                 title="Cor Primária"
               />
@@ -161,75 +161,75 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
       {/* Tools */}
       <button 
         onClick={() => setBrushSettings({...brushSettings, mode: 'paint'})}
-        className={`p-2 rounded-xl transition-all ${brushSettings.mode !== 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode !== 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
         title="Paint"
       >
-        <Brush className="w-5 h-5" />
+        <Brush className="w-4 h-4 md:w-5 md:h-5" />
       </button>
       <button 
         onClick={() => setBrushSettings({...brushSettings, mode: 'erase'})}
-        className={`p-2 rounded-xl transition-all ${brushSettings.mode === 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
         title="Erase"
       >
-        <Eraser className="w-5 h-5" />
+        <Eraser className="w-4 h-4 md:w-5 md:h-5" />
       </button>
 
       <Popover>
         <PopoverTrigger asChild>
-          <button 
-            onClick={() => setBrushSettings({...brushSettings, mode: 'blur'})}
-            className={`p-2 rounded-xl transition-all ${brushSettings.mode === 'blur' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
-            title="Blur (Strength)"
-          >
-            <Droplet className="w-5 h-5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent side="right" className="w-12 h-40 p-3 bg-zinc-800 border-zinc-700">
-          <div className="flex flex-col items-center h-full gap-2">
-            <span className="text-[10px] text-zinc-400 font-medium">Blur</span>
-            <Slider 
-              orientation="vertical"
-              value={[brushSettings.blurStrength || 1.0]}
-              onValueChange={([val]) => setBrushSettings({...brushSettings, blurStrength: val})}
-              min={0.1}
-              max={4.0}
-              step={0.1}
-            />
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      <Popover>
-        <PopoverTrigger asChild>
-          <button 
-            onClick={() => setBrushSettings({...brushSettings, mode: 'smudge'})}
-            className={`p-2 rounded-xl transition-all ${brushSettings.mode === 'smudge' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
-            title="Smudge (Strength)"
-          >
-            <Hand className="w-5 h-5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent side="right" className="w-12 h-40 p-3 bg-zinc-800 border-zinc-700">
-          <div className="flex flex-col items-center h-full gap-2">
-            <span className="text-[10px] text-zinc-400 font-medium">Smudge</span>
-            <Slider 
-              orientation="vertical"
-              value={[brushSettings.smudgeStrength !== undefined ? brushSettings.smudgeStrength : 1.0]}
-              onValueChange={([val]) => setBrushSettings({...brushSettings, smudgeStrength: val})}
-              min={0.1}
-              max={3.0}
-              step={0.1}
-            />
-          </div>
-        </PopoverContent>
-      </Popover>
-      <button 
-        onClick={() => setBrushSettings({...brushSettings, mode: 'gradient'})}
-        className={`p-2 rounded-xl transition-all ${brushSettings.mode === 'gradient' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
-        title="Gradient Tool"
-      >
-        <MousePointer2 className="w-5 h-5 rotate-45" />
-      </button>
+            <button 
+              onClick={() => setBrushSettings({...brushSettings, mode: 'blur'})}
+              className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'blur' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+              title="Blur (Strength)"
+            >
+              <Droplet className="w-4 h-4 md:w-5 md:h-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="right" className="w-12 h-40 p-3 bg-zinc-800 border-zinc-700">
+            <div className="flex flex-col items-center h-full gap-2">
+              <span className="text-[10px] text-zinc-400 font-medium">Blur</span>
+              <Slider 
+                orientation="vertical"
+                value={[brushSettings.blurStrength || 1.0]}
+                onValueChange={([val]) => setBrushSettings({...brushSettings, blurStrength: val})}
+                min={0.1}
+                max={4.0}
+                step={0.1}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+  
+        <Popover>
+          <PopoverTrigger asChild>
+            <button 
+              onClick={() => setBrushSettings({...brushSettings, mode: 'smudge'})}
+              className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'smudge' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+              title="Smudge (Strength)"
+            >
+              <Hand className="w-4 h-4 md:w-5 md:h-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="right" className="w-12 h-40 p-3 bg-zinc-800 border-zinc-700">
+            <div className="flex flex-col items-center h-full gap-2">
+              <span className="text-[10px] text-zinc-400 font-medium">Smudge</span>
+              <Slider 
+                orientation="vertical"
+                value={[brushSettings.smudgeStrength !== undefined ? brushSettings.smudgeStrength : 1.0]}
+                onValueChange={([val]) => setBrushSettings({...brushSettings, smudgeStrength: val})}
+                min={0.1}
+                max={3.0}
+                step={0.1}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+        <button 
+          onClick={() => setBrushSettings({...brushSettings, mode: 'gradient'})}
+          className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'gradient' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+          title="Gradient Tool"
+        >
+          <MousePointer2 className="w-4 h-4 md:w-5 md:h-5 rotate-45" />
+        </button>
       
       {/* Sliders */}
       <div className="w-6 h-36 py-2 flex justify-center" title="Brush Size">

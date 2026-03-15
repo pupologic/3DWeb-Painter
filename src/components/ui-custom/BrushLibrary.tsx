@@ -186,13 +186,21 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
         <ScrollArea className="flex-1">
           <div className="grid grid-cols-1 gap-1 p-2 pr-4">
             {filteredPresets.map(preset => (
-              <button
+              <div
                 key={preset.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   const { color, mode, ...settings } = preset;
                   onBrushSettingsChange({ ...brushSettings, ...settings });
                 }}
-                className={`flex flex-col p-2 rounded-lg transition-all border ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    const { color, mode, ...settings } = preset;
+                    onBrushSettingsChange({ ...brushSettings, ...settings });
+                  }
+                }}
+                className={`flex flex-col p-2 rounded-lg transition-all border cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                   brushSettings.id === preset.id 
                     ? 'bg-blue-600/20 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.1)]' 
                     : 'bg-zinc-900/30 border-transparent hover:border-white/10 hover:bg-white/5'
@@ -244,7 +252,7 @@ export const BrushLibrary: React.FC<BrushLibraryProps> = ({
                   </DropdownMenu>
                 </div>
                 <BrushStrokePreview brush={preset} width={220} height={40} />
-              </button>
+              </div>
             ))}
           </div>
         </ScrollArea>

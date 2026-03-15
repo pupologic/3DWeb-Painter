@@ -91,7 +91,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   
   const { 
     initPaintSystem, startPainting, paint, stopPainting,
-    texture, previewCanvas,
+    texture, pbrTextures, previewCanvas,
     layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, clearCanvas, fillCanvas, undo, redo, exportTexture, sampleColor,
     createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask,
     mergeLayer, mergeFolder,
@@ -176,7 +176,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       const newMaterial = (matcapName && matcapTexture)
         ? new THREE.MeshMatcapMaterial({ 
             matcap: matcapTexture, 
-            map: texture || null, 
+            map: pbrTextures.albedo || texture || null, 
             flatShading, 
             color: objectColor,
             transparent: true,
@@ -184,9 +184,15 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
             alphaTest: 0.001
           })
         : new THREE.MeshStandardMaterial({ 
-            map: texture || null, 
-            roughness, 
-            metalness, 
+            map: pbrTextures.albedo || texture || null, 
+            metalnessMap: pbrTextures.metalness || null,
+            roughnessMap: pbrTextures.roughness || null,
+            emissiveMap: pbrTextures.emissive || null,
+            alphaMap: pbrTextures.alpha || null,
+            emissive: new THREE.Color(0xffffff), // Emissive color is controlled by the map
+            emissiveIntensity: pbrTextures.emissive ? 1.0 : 0.0,
+            roughness: pbrTextures.roughness ? 1.0 : roughness, 
+            metalness: pbrTextures.metalness ? 1.0 : metalness, 
             flatShading, 
             color: objectColor,
             transparent: true,
@@ -200,7 +206,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         }
       });
     }
-  }, [texture, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness]);
+  }, [texture, pbrTextures, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness]);
 
   const updateCursor = useCallback((hit: THREE.Intersection | undefined, pressure: number = 1.0) => {
     if (hit) {
@@ -292,7 +298,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
             start: point,
             end: point.clone(),
             mid: point.clone(),
-            isLocked: false,
+            isLocked: true,
             isCreating: true
           });
           
@@ -457,10 +463,9 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       {(brushSettings.mode as any) === 'gradient' && (
         <mesh 
           onPointerDown={handlePointerDown}
-          // We don't need to see it, just catch events
-          visible={false}
         >
-          <planeGeometry args={[100, 100]} />
+          <sphereGeometry args={[1000, 32, 32]} />
+          <meshBasicMaterial transparent opacity={0} side={THREE.BackSide} depthWrite={false} />
         </mesh>
       )}
 

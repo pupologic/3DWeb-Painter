@@ -6,6 +6,7 @@ import { PaintableMesh } from './PaintableMesh';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
 import type { OverlayData } from '@/components/ui-custom/OverlayManager';
 import type { GradientSession } from './PaintableMesh';
+import { EffectComposer, N8AO } from '@react-three/postprocessing';
 
 interface Scene3DProps {
   brushSettings: BrushSettings;
@@ -38,6 +39,10 @@ interface Scene3DProps {
   // Gradient Props
   gradientSession?: GradientSession | null;
   setGradientSession?: React.Dispatch<React.SetStateAction<GradientSession | null>>;
+  // SAO Props
+  saoEnabled?: boolean;
+  saoIntensity?: number;
+  saoScale?: number;
 }
 
 const CameraController = ({ focalLength }: { focalLength: number }) => {
@@ -91,6 +96,9 @@ export const Scene3D: React.FC<Scene3DProps> = ({
   isModelVisible = true,
   gradientSession,
   setGradientSession,
+  saoEnabled = false,
+  saoIntensity = 0.5,
+  saoScale = 1.0,
 }) => {
   const [cameraPosition] = useState<[number, number, number]>([0, 0, 8]);
   const controlsRef = useRef<any>(null);
@@ -139,23 +147,6 @@ export const Scene3D: React.FC<Scene3DProps> = ({
           />
         )}
         
-        {/* Grid */}
-        {showGrid && (
-          <Grid
-            position={[0, -3, 0]}
-            args={[20, 20]}
-            cellSize={0.5}
-            cellThickness={0.5}
-            cellColor="#444444"
-            sectionSize={2}
-            sectionThickness={1}
-            sectionColor="#666666"
-            fadeDistance={25}
-            fadeStrength={1}
-            infiniteGrid
-          />
-        )}
-
         <PaintableMesh
           brushSettings={brushSettings}
           modelParts={modelParts}
@@ -210,6 +201,38 @@ export const Scene3D: React.FC<Scene3DProps> = ({
           maxDistance={20}
           target={[0, 0, 0]}
         />
+
+        {/* Post-processing Effects */}
+        {saoEnabled && (
+          <EffectComposer>
+            <N8AO 
+              intensity={saoIntensity * 2}
+              aoRadius={saoScale * 0.5}
+              distanceFalloff={1.0}
+              aoSamples={16}
+              denoiseSamples={4}
+              denoiseRadius={12}
+            />
+          </EffectComposer>
+        )}
+
+        {/* Grid (Rendered after AO to avoid shadows) */}
+        {showGrid && (
+          <Grid
+            position={[0, -3, 0]}
+            args={[20, 20]}
+            cellSize={0.5}
+            cellThickness={0.5}
+            cellColor="#444444"
+            sectionSize={2}
+            sectionThickness={1}
+            sectionColor="#666666"
+            fadeDistance={25}
+            fadeStrength={1}
+            infiniteGrid
+            renderOrder={1000}
+          />
+        )}
       </Canvas>
     </div>
   );

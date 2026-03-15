@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react'; 
 import * as THREE from 'three';
 import { Scene3D } from '@/components/3d/Scene3D';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
@@ -47,6 +47,8 @@ function App() {
     blurStrength: 1.0,
     smudgeStrength: 1.0,
     gradientType: 'linear',
+    gradientColor1Transparent: false,
+    gradientColor2Transparent: false,
 
     // Metadata for V2
     id: 'default-round',
@@ -114,6 +116,11 @@ function App() {
   const [objectColor, setObjectColor] = useState('#e5e5e5');
   const [roughness, setRoughness] = useState(0.8);
   const [metalness, setMetalness] = useState(0.1);
+  
+  // Ambient Occlusion (SAO) State
+  const [saoEnabled, setSaoEnabled] = useState(false);
+  const [saoIntensity, setSaoIntensity] = useState(0.5);
+  const [saoScale, setSaoScale] = useState(1.0);
 
   const handleAddOverlay = useCallback((type: 'reference' | 'stencil', file: File) => {
     const url = URL.createObjectURL(file);
@@ -413,6 +420,12 @@ function App() {
         setMetalness={setMetalness}
         colorHistory={colorHistory}
         layerControls={layerControls}
+        saoEnabled={saoEnabled}
+        setSaoEnabled={setSaoEnabled}
+        saoIntensity={saoIntensity}
+        setSaoIntensity={setSaoIntensity}
+        saoScale={saoScale}
+        setSaoScale={setSaoScale}
       />
 
       <div className="flex-1 flex overflow-hidden bg-[#09090b]">
@@ -482,6 +495,9 @@ function App() {
                   }
                 }}
                 isModelVisible={!isLoading}
+                saoEnabled={saoEnabled}
+                saoIntensity={saoIntensity}
+                saoScale={saoScale}
               />
             </div>
 

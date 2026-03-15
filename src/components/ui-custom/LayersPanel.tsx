@@ -27,10 +27,24 @@ interface LayersPanelProps {
 }
 
 const blendModes = [
-  { label: 'Normal', value: THREE.NormalBlending },
-  { label: 'Additive', value: THREE.AdditiveBlending },
-  { label: 'Subtractive', value: THREE.SubtractiveBlending },
-  { label: 'Multiply', value: THREE.MultiplyBlending },
+  { label: 'Normal', value: 0 },
+  { label: 'Additive', value: 1 },
+  { label: 'Subtractive', value: 2 },
+  { label: 'Multiply', value: 3 },
+  { label: 'Screen', value: 4 },
+  { label: 'Overlay', value: 5 },
+  { label: 'Soft Light', value: 6 },
+  { label: 'Hard Light', value: 7 },
+  { label: 'Difference', value: 8 },
+  { label: 'Erase', value: 9 },
+];
+
+const mapTypes = [
+  { label: 'Albedo', value: 'albedo' },
+  { label: 'Metalness', value: 'metalness' },
+  { label: 'Roughness', value: 'roughness' },
+  { label: 'Emissive', value: 'emissive' },
+  { label: 'Alpha', value: 'alpha' },
 ];
 
 export const LayersPanel: React.FC<LayersPanelProps> = ({ layerControls }) => {
@@ -178,8 +192,7 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ layerControls }) => {
             } ${draggedId === layer.id ? 'opacity-30' : ''}
               ${dragOverId === layer.id ? 'border-t-2 border-t-amber-500' : ''}
               ${dropParentId === layer.id && layer.isFolder ? 'bg-amber-500/10 border-amber-500/30' : ''}
-              ${hasParent ? 'ml-6 relative before:content-[""] before:absolute before:-left-3 before:top-1/2 before:w-2 before:h-[1px] before:bg-zinc-600' : ''} 
-              ${layer.clippingParentId && !hasParent ? 'ml-6 relative before:content-[""] before:absolute before:-left-3 before:top-1/2 before:w-2 before:h-[1px] before:bg-zinc-600' : ''}`}
+              ${hasParent ? 'ml-6 relative before:content-[""] before:absolute before:-left-3 before:top-1/2 before:w-2 before:h-[1px] before:bg-zinc-600' : ''}`}
             onClick={() => {
               if (draggedId) return; // Ignore clicks while dragging
               if (!layer.isFolder) setLayerActive(layer.id);
@@ -321,6 +334,25 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ layerControls }) => {
                 </div>
                 
                 <div className="flex items-center justify-between gap-3">
+                  <span className="text-zinc-500 text-[10px] uppercase font-mono tracking-wider w-12">CHANNEL</span>
+                  <select
+                    className={`flex-1 border rounded-md px-2 py-1 text-xs outline-none transition-colors ${
+                      layer.mapType === 'albedo' ? 'bg-zinc-900 border-white/10 text-zinc-300' :
+                      layer.mapType === 'metalness' ? 'bg-blue-900/20 border-blue-500/30 text-blue-300' :
+                      layer.mapType === 'roughness' ? 'bg-emerald-900/20 border-emerald-500/30 text-emerald-300' :
+                      layer.mapType === 'emissive' ? 'bg-amber-900/20 border-amber-500/30 text-amber-300' :
+                      'bg-zinc-900 border-white/10 text-zinc-300'
+                    }`}
+                    value={layer.mapType}
+                    onChange={(e) => updateLayer(layer.id, { mapType: e.target.value as any })}
+                  >
+                    {mapTypes.map(m => (
+                      <option key={m.value} value={m.value} className="bg-zinc-900 text-white">{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
                   <span className="text-zinc-500 text-[10px] uppercase font-mono tracking-wider w-12">OPACITY</span>
                   <div className="flex-1 flex items-center gap-3">
                     <Slider
@@ -334,6 +366,23 @@ export const LayersPanel: React.FC<LayersPanelProps> = ({ layerControls }) => {
                     <span className="w-8 text-right text-zinc-400 font-mono text-[10px]">{Math.round(layer.opacity * 100)}%</span>
                   </div>
                 </div>
+
+                {layer.mapType === 'emissive' && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-zinc-500 text-[10px] uppercase font-mono tracking-wider w-12">GLOW BOOST</span>
+                    <div className="flex-1 flex items-center gap-3">
+                      <Slider
+                        value={[layer.intensity || 1]}
+                        min={0}
+                        max={10}
+                        step={0.1}
+                        onValueChange={([val]) => updateLayer(layer.id, { intensity: val })}
+                        className="w-full"
+                      />
+                      <span className="w-8 text-right text-zinc-400 font-mono text-[10px]">{ (layer.intensity || 1).toFixed(1) }x</span>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/5">
                   <span className="text-zinc-500 text-[10px] uppercase font-mono tracking-wider w-16">LAYER MASK</span>
