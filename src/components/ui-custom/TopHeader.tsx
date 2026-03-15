@@ -140,7 +140,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <img src={logoImg} alt="Logo" className="w-full h-full object-contain" />
           </div>
           <div className="hidden md:flex items-baseline gap-1.5 md:gap-2">
-            <h1 className="text-[10px] md:text-xs font-semibold text-zinc-100 tracking-wide">3D WEB PAINTER</h1>
+            <h1 className="text-[10px] md:text-xs font-semibold text-zinc-100 tracking-wide uppercase">Webflow</h1>
             <span className="text-[8px] md:text-[10px] text-zinc-500 font-medium hidden xl:inline">v1.4.1</span>
           </div>
         </div>
