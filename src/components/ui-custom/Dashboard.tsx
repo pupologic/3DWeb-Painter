@@ -60,11 +60,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNewProject, onLoadProjec
     <div className="w-full h-screen bg-[#09090b] text-zinc-100 flex flex-col p-8 md:p-12 overflow-y-auto items-center">
       <div className="w-full max-w-7xl flex flex-col">
         <header className="mb-12 md:mb-16 flex items-center justify-center md:justify-start w-full">
-          <div className="flex flex-col items-end md:ml-[20px]">
-            <div className="w-full md:w-[700px] h-32 md:h-48 flex items-center justify-center md:justify-start overflow-hidden">
-              <img src={logoImg} alt="Webflow" className="h-full object-contain object-center md:object-left" />
+          <div className="flex flex-col items-end md:ml-[20px] w-fit">
+            <div className="h-32 md:h-48 flex items-center overflow-hidden">
+              <img src={logoImg} alt="Webflow" className="h-full object-contain" />
             </div>
-            <span className="text-[10px] md:text-xs text-zinc-500 font-medium tracking-widest mt-[-10px] mr-[10%] md:mr-0">V 1.7.2</span>
+            <span className="text-[10px] md:text-xs text-zinc-500 font-medium tracking-widest mt-[-10px]">V 1.7.2</span>
           </div>
         </header>
 
