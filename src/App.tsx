@@ -57,6 +57,7 @@ function App() {
     usePressureSize: true,
     usePressureOpacity: true,
     pressureCurve: 1.0,
+    performanceMode: false,
   });
 
   const [modelName, setModelName] = useState<string>('Suzanne');
@@ -104,23 +105,53 @@ function App() {
   const [previewCanvas, setPreviewCanvas] = useState<HTMLCanvasElement | null>(null);
   const [layerControls, setLayerControls] = useState<any>(null);
   const initialLayersToLoadRef = useRef<any[] | null>(null);
+
+  // Trigger resize event when UI side-panels toggle to force R3F to update centering
+  useEffect(() => {
+    // Small delay to allow the DOM width to update before the resize event
+    const timer = setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [showUVPanel, uvPanelWidth]);
   
   // Environment controls
   const [matcapName, setMatcapName] = useState<string | null>('softlight_grey.png');
+  const [lastMatcap, setLastMatcap] = useState<string>('softlight_grey.png');
   const [lightSetup, setLightSetup] = useState<'3point' | 'directional' | 'ambient'>('3point');
-  const [lightIntensity, setLightIntensity] = useState(1);
+  const [lightIntensity, setLightIntensity] = useState(0.2);
   const [focalLength, setFocalLength] = useState(35);
-  const [envIntensity, setEnvIntensity] = useState(1);
+  const [envIntensity, setEnvIntensity] = useState(0.3);
+  const [bumpScale, setBumpScale] = useState(1.0);
 
-  // Material / Shader controls
   const [objectColor, setObjectColor] = useState('#e5e5e5');
-  const [roughness, setRoughness] = useState(0.8);
-  const [metalness, setMetalness] = useState(0.1);
+  const [roughness] = useState(0.8);
+  const [metalness] = useState(0.1);
   
   // Ambient Occlusion (SAO) State
   const [saoEnabled, setSaoEnabled] = useState(false);
   const [saoIntensity, setSaoIntensity] = useState(0.5);
   const [saoScale, setSaoScale] = useState(1.0);
+  const [pbrMode, setPbrMode] = useState(false);
+
+  const handlePbrModeChange = useCallback((enabled: boolean) => {
+    setPbrMode(enabled);
+    if (enabled) {
+      handleMatcapChange(null);
+      setLightSetup('3point');
+    }
+  }, []);
+
+  const handleMatcapChange = useCallback((name: string | null) => {
+    setMatcapName(name);
+    if (name !== null) {
+      setLastMatcap(name);
+    }
+    if (name === null) {
+      setLightIntensity(0.2);
+      setEnvIntensity(0.3);
+    }
+  }, []);
 
   const handleAddOverlay = useCallback((type: 'reference' | 'stencil', file: File) => {
     const url = URL.createObjectURL(file);
@@ -128,8 +159,8 @@ function App() {
       id: THREE.MathUtils.generateUUID(),
       type,
       imageUrl: url,
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
+      x: 0.5,
+      y: 0.5,
       scale: 1,
       rotation: 0,
       opacity: type === 'stencil' ? 0.5 : 1.0,
@@ -401,7 +432,8 @@ function App() {
         brushSettings={brushSettings}
         setBrushSettings={setBrushSettings}
         matcapName={matcapName}
-        setMatcapName={setMatcapName}
+        setMatcapName={handleMatcapChange}
+        lastMatcap={lastMatcap}
         lightSetup={lightSetup}
         setLightSetup={setLightSetup}
         lightIntensity={lightIntensity}
@@ -414,23 +446,23 @@ function App() {
         setEnvIntensity={setEnvIntensity}
         objectColor={objectColor}
         setObjectColor={setObjectColor}
-        roughness={roughness}
-        setRoughness={setRoughness}
-        metalness={metalness}
-        setMetalness={setMetalness}
         colorHistory={colorHistory}
         layerControls={layerControls}
         saoEnabled={saoEnabled}
-        setSaoEnabled={setSaoEnabled}
+        onSaoEnabledChange={setSaoEnabled}
         saoIntensity={saoIntensity}
-        setSaoIntensity={setSaoIntensity}
+        onSaoIntensityChange={setSaoIntensity}
         saoScale={saoScale}
-        setSaoScale={setSaoScale}
+        onSaoScaleChange={setSaoScale}
+        bumpScale={bumpScale}
+        onBumpScaleChange={setBumpScale}
+        pbrMode={pbrMode}
+        onPbrModeChange={handlePbrModeChange}
       />
 
       <div className="flex-1 flex overflow-hidden bg-[#09090b]">
 
-        <main className="flex-1 relative flex">
+        <main className="flex-1 relative flex min-w-0 overflow-hidden">
           {/* Vertical Shortcut Bar */}
           <LeftShortcutBar 
             brushSettings={brushSettings}
@@ -445,15 +477,7 @@ function App() {
             colorHistory={colorHistory}
           />
 
-          <div className="flex-1 w-full relative flex" ref={containerRef}>
-            {/* OVERLAYS UI (DOM Level) */}
-            <OverlayManager 
-              overlays={overlays}
-              onAdd={handleAddOverlay}
-              onUpdate={handleUpdateOverlay}
-              onRemove={handleRemoveOverlay}
-            />
-
+          <div className="flex-1 relative flex min-w-0 overflow-hidden" ref={containerRef}>
             <ToolOptionsBar 
               brushSettings={brushSettings}
               setBrushSettings={setBrushSettings}
@@ -463,9 +487,17 @@ function App() {
 
             {/* 3D Scene panel */}
             <div
-              className="relative h-full"
-              style={{ width: showUVPanel ? `${100 - uvPanelWidth}%` : '100%', transition: showUVPanel ? 'none' : 'width 0.2s ease' }}
+              className="flex-1 relative h-full overflow-hidden min-w-0"
+              style={{ display: 'flex', flexDirection: 'column' }}
             >
+              {/* OVERLAYS UI (DOM Level) - Moved here to align with viewport */}
+              <OverlayManager 
+                overlays={overlays}
+                onAdd={handleAddOverlay}
+                onUpdate={handleUpdateOverlay}
+                onRemove={handleRemoveOverlay}
+              />
+
               <Scene3D
                 brushSettings={brushSettings}
                 modelParts={modelParts}
@@ -498,6 +530,7 @@ function App() {
                 saoEnabled={saoEnabled}
                 saoIntensity={saoIntensity}
                 saoScale={saoScale}
+                bumpScale={bumpScale}
               />
             </div>
 
@@ -535,7 +568,7 @@ function App() {
 
             {/* UV panel — always mounted, hidden via CSS to avoid rebuild cost on open */}
             <div
-              className="relative h-full bg-[#09090b]"
+              className="relative h-full bg-[#09090b] min-w-0 overflow-hidden"
               style={{
                 width: `${uvPanelWidth}%`,
                 flexShrink: 0,

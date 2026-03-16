@@ -53,6 +53,7 @@ interface PaintableMeshProps {
   onColorPainted?: (color: string) => void;
   onLoadingProgress?: (progress: number, status: string) => void;
   isVisible?: boolean;
+  bumpScale?: number;
   
   // New Gradient Props
   gradientSession?: GradientSession | null;
@@ -78,6 +79,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   onColorPainted,
   onLoadingProgress,
   isVisible = true,
+  bumpScale = 1.0,
   // New Gradient Props
   gradientSession,
   setGradientSession,
@@ -189,6 +191,8 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
             roughnessMap: pbrTextures.roughness || null,
             emissiveMap: pbrTextures.emissive || null,
             alphaMap: pbrTextures.alpha || null,
+            bumpMap: (pbrTextures as any).bump || null,
+            bumpScale: (pbrTextures as any).bump ? bumpScale : 0,
             emissive: new THREE.Color(0xffffff), // Emissive color is controlled by the map
             emissiveIntensity: pbrTextures.emissive ? 1.0 : 0.0,
             roughness: pbrTextures.roughness ? 1.0 : roughness, 
@@ -206,7 +210,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         }
       });
     }
-  }, [texture, pbrTextures, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness]);
+  }, [texture, pbrTextures, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness, bumpScale]);
 
   const updateCursor = useCallback((hit: THREE.Intersection | undefined, pressure: number = 1.0) => {
     if (hit) {

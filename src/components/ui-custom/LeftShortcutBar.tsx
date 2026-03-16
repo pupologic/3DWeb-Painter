@@ -50,14 +50,37 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
   };
 
   return (
-    <div className="absolute top-1/2 -translate-y-1/2 left-2 md:left-4 bg-[#121214]/90 backdrop-blur-md rounded-2xl py-3 md:py-6 px-1.5 md:px-2.5 border border-white/10 shadow-3xl flex flex-col items-center gap-2 md:gap-3 z-20">
+    <div 
+      className="absolute top-1/2 -translate-y-1/2 left-2 md:left-4 flex flex-col justify-center pointer-events-none z-20"
+      style={{
+        '--bar-py': 'clamp(0.35rem, 1.8vh, 1.5rem)',
+        '--bar-px': 'clamp(0.25rem, 1vh, 0.75rem)',
+        '--bar-gap': 'clamp(0.15rem, 1vh, 0.75rem)',
+        '--box-size': 'clamp(1.5rem, 4vh, 2.6rem)',
+        '--icon-box': 'clamp(1.3rem, 3.5vh, 2.4rem)',
+        '--slider-size-h': 'clamp(2.5rem, 12vh, 9rem)',
+        '--slider-opacity-h': 'clamp(2rem, 8vh, 7rem)',
+        maxHeight: 'calc(100vh - 8rem)'
+      } as React.CSSProperties}
+    >
+      <div 
+        className="bg-[#121214]/70 hover:bg-[#121214]/95 backdrop-blur-md rounded-2xl border border-white/5 hover:border-white/10 shadow-3xl flex flex-col items-center z-20 transition-all duration-300 group/sidebar pointer-events-auto overflow-y-auto no-scrollbar shrink-0"
+        style={{
+            padding: 'var(--bar-py) var(--bar-px)',
+            gap: 'var(--bar-gap)',
+        }}
+      >
       
       {/* Layer/Mask Toggle */}
-      <div className="flex flex-col items-center gap-1 group">
-        <div className="relative w-8 h-8 md:w-10 md:h-10">
+      <div className="flex flex-col items-center gap-1 group shrink-0">
+        <div 
+            className="relative shrink-0"
+            style={{ width: 'var(--box-size)', height: 'var(--box-size)' }}
+        >
           {/* Mask Square (Back) */}
           <div 
-            className={`absolute right-0 bottom-0 w-6 h-6 md:w-7 md:h-7 rounded shadow-sm border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
+            className={`absolute right-0 bottom-0 rounded shadow-sm border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
+            style={{ width: 'calc(var(--box-size) * 0.7)', height: 'calc(var(--box-size) * 0.7)' }}
             onClick={() => {
               if (isMaskEditing) return;
               
@@ -81,12 +104,13 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
             title="Mask"
           >
             <div className="w-full h-full bg-zinc-900 flex items-center justify-center">
-              <div className="w-3 h-3 bg-white rounded-full opacity-60" />
+              <div className="w-2.5 h-2.5 bg-white rounded-full opacity-60" />
             </div>
           </div>
           {/* Layer Square (Front) */}
           <div 
-            className={`absolute left-0 top-0 w-6 h-6 md:w-7 md:h-7 rounded shadow-md border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${!isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
+            className={`absolute left-0 top-0 rounded shadow-md border cursor-pointer hover:scale-110 transition-all duration-200 overflow-hidden ${!isMaskEditing ? 'z-10 border-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border-white/10 opacity-70 hover:opacity-100'}`}
+            style={{ width: 'calc(var(--box-size) * 0.7)', height: 'calc(var(--box-size) * 0.7)' }}
             onClick={() => {
               if (!isMaskEditing) return;
 
@@ -103,20 +127,27 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
             title="Layer"
           >
             <div className="w-full h-full bg-zinc-700 flex items-center justify-center">
-              <Layers className="w-4 h-4 text-white/70" />
+              <Layers className="text-white/70" style={{ width: '50%', height: '50%' }} />
             </div>
           </div>
         </div>
       </div>
 
       {/* Dual Color Swatches */}
-      <div className="flex flex-col items-center gap-1 relative mt-1">
-        <div className="relative w-8 h-8 md:w-10 md:h-10">
+      <div className="flex flex-col items-center gap-1 relative mt-1 shrink-0">
+        <div 
+            className="relative shrink-0"
+            style={{ width: 'var(--box-size)', height: 'var(--box-size)' }}
+        >
           <Popover>
             <PopoverTrigger className="absolute right-0 bottom-0 z-0">
               <div 
-                className="w-5 h-5 md:w-7 md:h-7 rounded-sm shadow-sm border border-white/20 cursor-pointer hover:scale-110 transition-transform"
-                style={{ backgroundColor: secondaryColor }}
+                className="rounded-sm shadow-sm border border-white/20 cursor-pointer hover:scale-110 transition-transform"
+                style={{ 
+                    backgroundColor: secondaryColor,
+                    width: 'calc(var(--box-size) * 0.7)', 
+                    height: 'calc(var(--box-size) * 0.7)' 
+                }}
                 title="Cor Secundária"
               />
             </PopoverTrigger>
@@ -132,8 +163,12 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
           <Popover>
             <PopoverTrigger className="absolute left-0 top-0 z-10">
               <div 
-                className="w-5 h-5 md:w-7 md:h-7 rounded-sm shadow-md border border-white/40 cursor-pointer hover:scale-110 transition-transform"
-                style={{ backgroundColor: primaryColor }}
+                className="rounded-sm shadow-md border border-white/40 cursor-pointer hover:scale-110 transition-transform"
+                style={{ 
+                    backgroundColor: primaryColor,
+                    width: 'calc(var(--box-size) * 0.7)', 
+                    height: 'calc(var(--box-size) * 0.7)' 
+                }}
                 title="Cor Primária"
               />
             </PopoverTrigger>
@@ -152,36 +187,39 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
           className="absolute -top-1.5 -right-1.5 p-0.5 bg-[#1a1a1c] border border-white/10 rounded-full text-zinc-400 hover:text-white hover:bg-white/10 transition-colors z-20"
           title="Alternar Cores (X)"
         >
-          <ArrowRightLeft className="w-3 h-3" />
+          <ArrowRightLeft className="w-2.5 h-2.5" />
         </button>
       </div>
 
-      <div className="w-full h-px bg-white/10 my-1"/>
+      <div className="w-full h-px bg-white/10 my-0.5 shrink-0"/>
 
       {/* Tools */}
       <button 
         onClick={() => setBrushSettings({...brushSettings, mode: 'paint'})}
-        className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode !== 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        className={`rounded-xl transition-all shrink-0 flex items-center justify-center ${brushSettings.mode !== 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-110' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
         title="Paint"
       >
-        <Brush className="w-4 h-4 md:w-5 md:h-5" />
+        <Brush style={{ width: '60%', height: '60%' }} />
       </button>
       <button 
         onClick={() => setBrushSettings({...brushSettings, mode: 'erase'})}
-        className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        className={`rounded-xl transition-all shrink-0 flex items-center justify-center ${brushSettings.mode === 'erase' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-110' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+        style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
         title="Erase"
       >
-        <Eraser className="w-4 h-4 md:w-5 md:h-5" />
+        <Eraser style={{ width: '60%', height: '60%' }} />
       </button>
 
       <Popover>
         <PopoverTrigger asChild>
             <button 
               onClick={() => setBrushSettings({...brushSettings, mode: 'blur'})}
-              className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'blur' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+              className={`rounded-xl transition-all shrink-0 flex items-center justify-center ${brushSettings.mode === 'blur' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-110' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+              style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
               title="Blur (Strength)"
             >
-              <Droplet className="w-4 h-4 md:w-5 md:h-5" />
+              <Droplet style={{ width: '60%', height: '60%' }} />
             </button>
           </PopoverTrigger>
           <PopoverContent side="right" className="w-12 h-40 p-3 bg-zinc-800 border-zinc-700">
@@ -203,10 +241,11 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
           <PopoverTrigger asChild>
             <button 
               onClick={() => setBrushSettings({...brushSettings, mode: 'smudge'})}
-              className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'smudge' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+              className={`rounded-xl transition-all shrink-0 flex items-center justify-center ${brushSettings.mode === 'smudge' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-110' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+              style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
               title="Smudge (Strength)"
             >
-              <Hand className="w-4 h-4 md:w-5 md:h-5" />
+              <Hand style={{ width: '60%', height: '60%' }} />
             </button>
           </PopoverTrigger>
           <PopoverContent side="right" className="w-12 h-40 p-3 bg-zinc-800 border-zinc-700">
@@ -225,14 +264,19 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
         </Popover>
         <button 
           onClick={() => setBrushSettings({...brushSettings, mode: 'gradient'})}
-          className={`p-1.5 md:p-2 rounded-xl transition-all ${brushSettings.mode === 'gradient' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-105' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+          className={`rounded-xl transition-all shrink-0 flex items-center justify-center ${brushSettings.mode === 'gradient' ? 'bg-zinc-700 text-zinc-100 shadow-md scale-110' : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}
+          style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
           title="Gradient Tool"
         >
-          <MousePointer2 className="w-4 h-4 md:w-5 md:h-5 rotate-45" />
+          <MousePointer2 className="rotate-45" style={{ width: '60%', height: '60%' }} />
         </button>
       
       {/* Sliders */}
-      <div className="w-6 h-36 py-2 flex justify-center" title="Brush Size">
+      <div 
+        className="w-6 py-1 flex justify-center shrink-0" 
+        style={{ height: 'var(--slider-size-h)' }}
+        title="Brush Size"
+      >
         <Slider 
           orientation="vertical"
           value={[brushSettings.size]}
@@ -244,7 +288,11 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
         />
       </div>
       
-      <div className="w-6 h-28 py-2 flex justify-center" title="Brush Opacity">
+      <div 
+        className="w-6 py-1 flex justify-center shrink-0" 
+        style={{ height: 'var(--slider-opacity-h)' }}
+        title="Brush Opacity"
+      >
         <Slider 
           orientation="vertical"
           value={[brushSettings.opacity]}
@@ -256,23 +304,26 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
         />
       </div>
 
-      <div className="w-full h-px bg-white/10 my-1"/>
+      <div className="w-full h-px bg-white/10 my-0.5 shrink-0"/>
 
       <button 
         onClick={() => layerControls?.undo?.()}
-        className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-white/5 rounded-xl transition-colors"
+        className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 rounded-xl transition-colors shrink-0 flex items-center justify-center"
+        style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
         title="Undo"
       >
-        <Undo2 className="w-5 h-5" />
+        <Undo2 style={{ width: '65%', height: '65%' }} />
       </button>
       <button 
         onClick={() => layerControls?.redo?.()}
-        className="p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-white/5 rounded-xl transition-colors"
+        className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 rounded-xl transition-colors shrink-0 flex items-center justify-center"
+        style={{ width: 'var(--icon-box)', height: 'var(--icon-box)' }}
         title="Redo"
       >
-        <Redo2 className="w-5 h-5" />
+        <Redo2 style={{ width: '65%', height: '65%' }} />
       </button>
 
+      </div>
     </div>
   );
 };

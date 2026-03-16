@@ -51,6 +51,7 @@ export interface TopHeaderProps {
   
   matcapName: string | null;
   setMatcapName: (v: string | null) => void;
+  lastMatcap: string;
   lightSetup: any;
   setLightSetup: (v: any) => void;
   lightIntensity: number;
@@ -64,18 +65,18 @@ export interface TopHeaderProps {
 
   objectColor: string;
   setObjectColor: (v: string) => void;
-  roughness: number;
-  setRoughness: (v: number) => void;
-  metalness: number;
-  setMetalness: (v: number) => void;
   colorHistory: string[];
   layerControls: any;
   saoEnabled: boolean;
-  setSaoEnabled: (v: boolean) => void;
+  onSaoEnabledChange: (v: boolean) => void;
   saoIntensity: number;
-  setSaoIntensity: (v: number) => void;
+  onSaoIntensityChange: (v: number) => void;
   saoScale: number;
-  setSaoScale: (v: number) => void;
+  onSaoScaleChange: (v: number) => void;
+  bumpScale: number;
+  onBumpScaleChange: (v: number) => void;
+  pbrMode: boolean;
+  onPbrModeChange: (v: boolean) => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -85,11 +86,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   currentTexture, previewCanvas, handleExport, handleClear, handleImport, textureResolution, setTextureResolution,
   handleSaveProject, showUVPanel, setShowUVPanel, handleFill,
   brushSettings, setBrushSettings,
-  matcapName, setMatcapName, lightSetup, setLightSetup, lightIntensity, setLightIntensity,
+  matcapName, setMatcapName, lastMatcap, lightSetup, setLightSetup, lightIntensity, setLightIntensity,
   showGrid, setShowGrid, focalLength, setFocalLength, envIntensity, setEnvIntensity,
-  objectColor, setObjectColor, roughness, setRoughness, metalness, setMetalness,
+  objectColor, setObjectColor,
   colorHistory, layerControls,
-  saoEnabled, setSaoEnabled, saoIntensity, setSaoIntensity, saoScale, setSaoScale
+  saoEnabled, onSaoEnabledChange, saoIntensity, onSaoIntensityChange, saoScale, onSaoScaleChange,
+  bumpScale, onBumpScaleChange,
+  pbrMode, onPbrModeChange
 }) => {
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [customBrushes, setCustomBrushes] = useState<BrushSettings[]>(() => {
@@ -141,7 +144,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           </div>
           <div className="hidden md:flex items-baseline gap-1.5 md:gap-2">
             <h1 className="text-[10px] md:text-xs font-semibold text-zinc-100 tracking-wide uppercase">Webflow</h1>
-            <span className="text-[8px] md:text-[10px] text-zinc-500 font-medium hidden xl:inline">v1.4.1</span>
+            <span className="text-[8px] md:text-[10px] text-zinc-500 font-medium hidden xl:inline">v1.7.0</span>
           </div>
         </div>
 
@@ -272,6 +275,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <EnvironmentPanel
               matcapName={matcapName}
               onMatcapChange={setMatcapName}
+              lastMatcap={lastMatcap}
               lightSetup={lightSetup}
               onLightSetupChange={setLightSetup}
               lightIntensity={lightIntensity}
@@ -294,17 +298,17 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <MaterialPanel
               color={objectColor}
               onColorChange={setObjectColor}
-              roughness={roughness}
-              onRoughnessChange={setRoughness}
-              metalness={metalness}
-              onMetalnessChange={setMetalness}
               colorHistory={colorHistory}
               saoEnabled={saoEnabled}
-              onSaoEnabledChange={setSaoEnabled}
+              onSaoEnabledChange={onSaoEnabledChange}
               saoIntensity={saoIntensity}
-              onSaoIntensityChange={setSaoIntensity}
+              onSaoIntensityChange={onSaoIntensityChange}
               saoScale={saoScale}
-              onSaoScaleChange={setSaoScale}
+              onSaoScaleChange={onSaoScaleChange}
+              flatShading={flatShading}
+              onFlatShadingChange={setFlatShading}
+              pbrMode={pbrMode}
+              onPbrModeChange={onPbrModeChange}
             />
           </PopoverContent>
         </Popover>
@@ -326,7 +330,12 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             <Layers className="w-4 h-4 md:w-5 h-5" />
           </PopoverTrigger>
           <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2">
-            <LayersPanel layerControls={layerControls} />
+            <LayersPanel 
+              layerControls={layerControls} 
+              pbrMode={pbrMode}
+              bumpScale={bumpScale}
+              onBumpScaleChange={onBumpScaleChange}
+            />
           </PopoverContent>
         </Popover>
 

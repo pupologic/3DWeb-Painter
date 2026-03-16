@@ -2,10 +2,12 @@ import React from 'react';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Sun, Image as ImageIcon, Grid3X3 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 
 interface EnvironmentPanelProps {
   matcapName: string | null;
   onMatcapChange: (matcap: string | null) => void;
+  lastMatcap: string;
   lightSetup: '3point' | 'directional' | 'ambient';
   onLightSetupChange: (setup: '3point' | 'directional' | 'ambient') => void;
   lightIntensity: number;
@@ -31,6 +33,7 @@ const MATCAPS = [
 export const EnvironmentPanel: React.FC<EnvironmentPanelProps> = ({
   matcapName,
   onMatcapChange,
+  lastMatcap,
   lightSetup,
   onLightSetupChange,
   lightIntensity,
@@ -42,6 +45,7 @@ export const EnvironmentPanel: React.FC<EnvironmentPanelProps> = ({
   envIntensity,
   onEnvIntensityChange,
 }) => {
+  const isMatcapEnabled = matcapName !== null;
   return (
     <div className="space-y-6 p-5 bg-[#09090b] rounded-xl border border-white/5 shadow-lg">
       <h3 className="text-zinc-100 font-semibold text-sm tracking-wide uppercase flex items-center gap-2">
@@ -49,24 +53,43 @@ export const EnvironmentPanel: React.FC<EnvironmentPanelProps> = ({
         Environment
       </h3>
 
-      <div className="space-y-3">
-        <Label className="text-zinc-500 text-[10px] uppercase tracking-wide flex items-center gap-1">
-          <ImageIcon className="w-3 h-3" />
-          MatCap
+      <div className="flex items-center justify-between p-3 bg-zinc-900/50 border border-white/5 rounded-xl mb-2">
+        <Label className="text-zinc-100 text-xs font-bold flex items-center gap-2">
+          MATCAP ENABLED
         </Label>
-        <select
-          className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-zinc-600"
-          value={matcapName || ''}
-          onChange={(e) => onMatcapChange(e.target.value === '' ? null : e.target.value)}
-        >
-          {MATCAPS.map(m => (
-            <option key={m.id || 'none'} value={m.id || ''}>{m.label}</option>
-          ))}
-        </select>
-        <p className="text-[9px] text-zinc-600 uppercase tracking-widest">
-          Overrides basic lighting
-        </p>
+        <Switch 
+          checked={isMatcapEnabled}
+          onCheckedChange={(checked) => {
+            if (checked) {
+              onMatcapChange(lastMatcap || 'softlight_grey.png');
+            } else {
+              onMatcapChange(null);
+            }
+          }}
+          className="data-[state=checked]:bg-blue-500"
+        />
       </div>
+
+      {isMatcapEnabled && (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <Label className="text-zinc-500 text-[10px] uppercase tracking-wide flex items-center gap-1">
+            <ImageIcon className="w-3 h-3" />
+            MatCap Selection
+          </Label>
+          <select
+            className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-zinc-600 font-bold"
+            value={matcapName || ''}
+            onChange={(e) => onMatcapChange(e.target.value === '' ? null : e.target.value)}
+          >
+            {MATCAPS.filter(m => m.id !== null).map(m => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+          <p className="text-[9px] text-zinc-600 uppercase tracking-widest font-bold">
+            Overrides basic lighting
+          </p>
+        </div>
+      )}
 
       {setShowGrid && (
         <div className="pt-2 border-t border-white/5">
@@ -86,52 +109,52 @@ export const EnvironmentPanel: React.FC<EnvironmentPanelProps> = ({
         </div>
       )}
 
-      <div className="space-y-3 pt-2 border-t border-white/5">
-        <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Lighting Setup</Label>
-        <select
-          className={`w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-zinc-600 ${matcapName ? 'opacity-50 cursor-not-allowed' : ''}`}
-          value={lightSetup}
-          onChange={(e) => onLightSetupChange(e.target.value as any)}
-          disabled={matcapName !== null}
-        >
-          <option value="3point">3-Point Light</option>
-          <option value="directional">Directional (Sun)</option>
-          <option value="ambient">Ambient Only</option>
-        </select>
-      </div>
+      {!isMatcapEnabled && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="space-y-3 pt-2 border-t border-white/5">
+            <Label className="text-zinc-500 text-[10px] uppercase tracking-wide font-bold">Lighting Setup</Label>
+            <select
+              className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-xs text-zinc-300 outline-none focus:ring-1 focus:ring-zinc-600 font-bold"
+              value={lightSetup}
+              onChange={(e) => onLightSetupChange(e.target.value as any)}
+            >
+              <option value="3point">3-Point Light</option>
+              <option value="directional">Directional (Sun)</option>
+              <option value="ambient">Ambient Only</option>
+            </select>
+          </div>
 
-      <div className="space-y-2">
-        <div className="flex justify-between">
-          <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Light Intensity</Label>
-          <span className="text-zinc-500 font-mono text-[10px]">{Math.round(lightIntensity * 100)}%</span>
-        </div>
-        <div className={matcapName ? 'opacity-50 pointer-events-none' : ''}>
-          <Slider
-            value={[lightIntensity]}
-            onValueChange={([val]) => onLightIntensityChange(val)}
-            min={0}
-            max={2}
-            step={0.05}
-            className="w-full"
-            disabled={matcapName !== null}
-          />
-        </div>
-      </div>
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-zinc-500 text-[10px] uppercase tracking-wide font-bold">Light Intensity</Label>
+              <span className="text-zinc-500 font-mono text-[10px]">{Math.round(lightIntensity * 100)}%</span>
+            </div>
+            <Slider
+              value={[lightIntensity]}
+              onValueChange={([val]) => onLightIntensityChange(val)}
+              min={0}
+              max={2}
+              step={0.05}
+              className="w-full"
+            />
+          </div>
 
-      <div className="space-y-2 pt-2 border-t border-white/5 text-zinc-300">
-        <div className="flex justify-between">
-          <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Environment Strength</Label>
-          <span className="text-zinc-500 font-mono text-[10px]">{Math.round(envIntensity * 100)}%</span>
+          <div className="space-y-2 pt-2 border-t border-white/5 text-zinc-300">
+            <div className="flex justify-between">
+              <Label className="text-zinc-500 text-[10px] uppercase tracking-wide font-bold">Environment Strength</Label>
+              <span className="text-zinc-500 font-mono text-[10px]">{Math.round(envIntensity * 100)}%</span>
+            </div>
+            <Slider
+              value={[envIntensity]}
+              onValueChange={([val]) => onEnvIntensityChange(val)}
+              min={0}
+              max={2}
+              step={0.05}
+              className="w-full"
+            />
+          </div>
         </div>
-        <Slider
-          value={[envIntensity]}
-          onValueChange={([val]) => onEnvIntensityChange(val)}
-          min={0}
-          max={2}
-          step={0.05}
-          className="w-full"
-        />
-      </div>
+      )}
 
       {/* Environment rotation hidden temporarily 
       <div className="space-y-2 pt-2 border-t border-white/5 text-zinc-300">

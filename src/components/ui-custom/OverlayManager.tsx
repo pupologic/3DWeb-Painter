@@ -22,6 +22,7 @@ interface OverlayManagerProps {
 }
 
 export const OverlayManager: React.FC<OverlayManagerProps> = ({ overlays, onUpdate, onRemove, onAdd }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const dragRef = useRef<{ id: string, startX: number, startY: number, initialX: number, initialY: number, mode: 'move' | 'scale' | 'rotate' } | null>(null);
   const [imageDims, setImageDims] = useState<Record<string, { w: number, h: number }>>({});
@@ -73,7 +74,12 @@ export const OverlayManager: React.FC<OverlayManagerProps> = ({ overlays, onUpda
     const dy = e.clientY - startY;
 
     if (mode === 'move') {
-      onUpdate(id, { x: initialX + dx, y: initialY + dy });
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const nx = initialX + (dx / rect.width);
+      const ny = initialY + (dy / rect.height);
+      onUpdate(id, { x: nx, y: ny });
     } else if (mode === 'scale') {
       // Very basic uniform scaling based on horizontal mouse movement
       const newScale = Math.max(0.1, overlay.scale + (dx * 0.01));
@@ -101,48 +107,51 @@ export const OverlayManager: React.FC<OverlayManagerProps> = ({ overlays, onUpda
     e.target.value = ''; // Reset input
   };
 
-  return (
-    <>
-      {/* RENDER FLOATING OVERLAYS */}
-      {overlays.map(overlay => {
-        if (!overlay.visible) return null;
-        
-        const isActive = activeId === overlay.id;
-        
-        return (
-          <div
-            key={overlay.id}
-            className={`absolute pointer-events-none ${isActive ? 'z-50' : 'z-40'}`}
-            style={{
-              left: `${overlay.x}px`,
-              top: `${overlay.y}px`,
-              transform: `translate(-50%, -50%)`,
-              opacity: overlay.opacity
-            }}
-          >
-            {/* Outline and Image Wrapper - Handles scale and rotation */}
-            <div 
-              className={`relative group ${isActive ? 'ring-2 ring-blue-500' : 'hover:ring-2 hover:ring-white/50'}`}
+    return (
+      <div 
+        className="absolute inset-0 pointer-events-none z-40 overflow-hidden" 
+        ref={containerRef}
+      >
+        {/* RENDER FLOATING OVERLAYS */}
+        {overlays.map(overlay => {
+          if (!overlay.visible) return null;
+          
+          const isActive = activeId === overlay.id;
+          
+          return (
+            <div
+              key={overlay.id}
+              className={`absolute pointer-events-none ${isActive ? 'z-50' : 'z-40'}`}
               style={{
-                transform: `rotate(${overlay.rotation}deg) scale(${overlay.scale})`,
-                transformOrigin: 'center center',
+                left: `${overlay.x * 100}%`,
+                top: `${overlay.y * 100}%`,
+                transform: `translate(-50%, -50%)`,
+                opacity: overlay.opacity
               }}
             >
-              {/* Actual Image */}
-              <img 
-                src={overlay.imageUrl} 
-                alt={overlay.type}
-                className={`select-none max-w-[70vw] max-h-[70vh] object-contain ${overlay.type === 'stencil' ? 'pointer-events-none' : 'pointer-events-auto'}`}
-                crossOrigin="anonymous" 
-                id={`overlay-img-${overlay.id}`}
-                onLoad={(e) => handleImageLoad(overlay.id, e)}
-                onPointerDown={() => {
-                  if (overlay.type === 'reference') {
-                    setActiveId(overlay.id);
-                  }
+              {/* Outline and Image Wrapper - Handles scale and rotation */}
+              <div 
+                className={`relative group ${isActive ? 'ring-2 ring-blue-500' : 'hover:ring-2 hover:ring-white/50'}`}
+                style={{
+                  transform: `rotate(${overlay.rotation}deg) scale(${overlay.scale})`,
+                  transformOrigin: 'center center',
                 }}
-              />
-            </div>
+              >
+                {/* Actual Image */}
+                <img 
+                  src={overlay.imageUrl} 
+                  alt={overlay.type}
+                  className={`select-none max-w-[80vw] max-h-[80vh] object-contain ${overlay.type === 'stencil' ? 'pointer-events-none' : 'pointer-events-auto'}`}
+                  crossOrigin="anonymous" 
+                  id={`overlay-img-${overlay.id}`}
+                  onLoad={(e) => handleImageLoad(overlay.id, e)}
+                  onPointerDown={() => {
+                    if (overlay.type === 'reference') {
+                      setActiveId(overlay.id);
+                    }
+                  }}
+                />
+              </div>
 
             {/* Controls - Fixed size and horizontal orientation */}
             {(() => {
@@ -332,6 +341,6 @@ export const OverlayManager: React.FC<OverlayManagerProps> = ({ overlays, onUpda
           </>
         )}
       </div>
-    </>
+    </div>
   );
 };

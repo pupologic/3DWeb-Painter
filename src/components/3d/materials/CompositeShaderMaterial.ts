@@ -24,7 +24,7 @@ const fragmentShader = `
     if (mode == 1) return base + blend; // Additive
     if (mode == 2) return max(base - blend, 0.0); // Subtractive
     if (mode == 3) return base * blend; // Multiply
-    if (mode == 4) return base + (blend - base * blend) * 0.8; // Screen (Tamed)
+    if (mode == 4) return base + blend - base * blend; // Screen
     if (mode == 5) { // Overlay
       return mix(2.0 * base * blend, 1.0 - 2.0 * (1.0 - base) * (1.0 - blend), step(0.5, base));
     }
@@ -50,7 +50,18 @@ const fragmentShader = `
     
     float as = texColor.a * uOpacity;
     float ab = bgColor.a;
-    vec3 Cs = texColor.rgb * uIntensity;
+
+    // Un-premultiply: The layer texture is likely premultiplied (Color * Alpha) 
+    // because it was rendered over a transparent black background. 
+    // We 'straighten' it to get the correct color for the blend operator.
+    vec3 Cs = texColor.rgb;
+    if (texColor.a > 0.005) {
+        Cs = Cs / texColor.a;
+    } else {
+        Cs = vec3(0.0);
+    }
+    Cs *= uIntensity;
+
     vec3 Cb = bgColor.rgb;
     
     vec3 blended = blendOp(Cb, Cs, uBlendMode);

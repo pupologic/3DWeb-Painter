@@ -43,6 +43,7 @@ interface Scene3DProps {
   saoEnabled?: boolean;
   saoIntensity?: number;
   saoScale?: number;
+  bumpScale?: number;
 }
 
 const CameraController = ({ focalLength }: { focalLength: number }) => {
@@ -68,6 +69,20 @@ const EnvRotator = ({ envRotation }: { envRotation: number }) => {
       scene.backgroundRotation.set(0, envRotation, 0, 'XYZ');
     }
   }, [scene, envRotation]);
+  return null;
+};
+
+const RendererStateFixer = ({ saoEnabled }: { saoEnabled: boolean }) => {
+  const { gl } = useThree();
+
+  React.useEffect(() => {
+    if (!saoEnabled) {
+      // Force reset renderer state to prevent "trails" from post-processing leftovers
+      gl.autoClear = true;
+      gl.clear();
+    }
+  }, [saoEnabled, gl]);
+
   return null;
 };
 
@@ -99,6 +114,7 @@ export const Scene3D: React.FC<Scene3DProps> = ({
   saoEnabled = false,
   saoIntensity = 0.5,
   saoScale = 1.0,
+  bumpScale = 1.0,
 }) => {
   const [cameraPosition] = useState<[number, number, number]>([0, 0, 8]);
   const controlsRef = useRef<any>(null);
@@ -125,7 +141,6 @@ export const Scene3D: React.FC<Scene3DProps> = ({
         gl={{ 
           antialias: true, 
           alpha: true,
-          preserveDrawingBuffer: true,
         }}
         style={{ width: '100%', height: '100%' }}
       >
@@ -136,6 +151,7 @@ export const Scene3D: React.FC<Scene3DProps> = ({
         
         {/* Absolute reliable environment and background rotation */}
         <EnvRotator envRotation={envRotation} />
+        <RendererStateFixer saoEnabled={saoEnabled} />
 
         {/* Environment (fallback when no lights or just a small reflection) */}
         {!matcapName && (
@@ -167,6 +183,7 @@ export const Scene3D: React.FC<Scene3DProps> = ({
           isVisible={isModelVisible}
           gradientSession={gradientSession}
           setGradientSession={setGradientSession}
+          bumpScale={bumpScale}
         />
 
         {/* Lights (all grouped so rotation applies consistently to the lighting setup) */}

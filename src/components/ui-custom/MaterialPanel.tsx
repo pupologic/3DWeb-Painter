@@ -9,10 +9,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 interface MaterialPanelProps {
   color: string;
   onColorChange: (color: string) => void;
-  roughness: number;
-  onRoughnessChange: (val: number) => void;
-  metalness: number;
-  onMetalnessChange: (val: number) => void;
   colorHistory?: string[];
   saoEnabled: boolean;
   onSaoEnabledChange: (v: boolean) => void;
@@ -20,22 +16,26 @@ interface MaterialPanelProps {
   onSaoIntensityChange: (v: number) => void;
   saoScale: number;
   onSaoScaleChange: (v: number) => void;
+  flatShading: boolean;
+  onFlatShadingChange: (v: boolean) => void;
+  pbrMode: boolean;
+  onPbrModeChange: (v: boolean) => void;
 }
 
 export const MaterialPanel: React.FC<MaterialPanelProps> = ({
   color,
   onColorChange,
-  roughness,
-  onRoughnessChange,
-  metalness,
-  onMetalnessChange,
   colorHistory = [],
   saoEnabled,
   onSaoEnabledChange,
   saoIntensity,
   onSaoIntensityChange,
   saoScale,
-  onSaoScaleChange
+  onSaoScaleChange,
+  flatShading,
+  onFlatShadingChange,
+  pbrMode,
+  onPbrModeChange
 }) => {
   return (
     <div className="space-y-6 p-5 bg-[#09090b] rounded-xl border border-white/5 shadow-lg">
@@ -43,6 +43,20 @@ export const MaterialPanel: React.FC<MaterialPanelProps> = ({
         <Eclipse className="w-4 h-4 text-zinc-400" />
         Shader / Material
       </h3>
+
+      <div className="flex items-center justify-between p-3 bg-zinc-900/50 border border-white/5 rounded-xl">
+        <div className="space-y-0.5">
+          <Label className="text-zinc-100 text-xs font-bold flex items-center gap-2">
+            PBR MODE
+          </Label>
+          <p className="text-[10px] text-zinc-500 italic">Unlocks PBR channels & setup</p>
+        </div>
+        <Switch 
+          checked={pbrMode}
+          onCheckedChange={onPbrModeChange}
+          className="data-[state=checked]:bg-blue-500"
+        />
+      </div>
 
       <div className="space-y-3">
         <Label className="text-zinc-500 text-[10px] uppercase tracking-wide flex items-center gap-1">
@@ -71,35 +85,27 @@ export const MaterialPanel: React.FC<MaterialPanelProps> = ({
       </div>
 
       <div className="space-y-4 pt-2 border-t border-white/5">
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Roughness</Label>
-            <span className="text-zinc-500 font-mono text-[10px]">{Math.round(roughness * 100)}%</span>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Shading Style</Label>
+            <p className="text-[10px] text-zinc-400">{flatShading ? 'Flat / Poligonal' : 'Smooth / Suave'}</p>
           </div>
-          <Slider
-            value={[roughness]}
-            onValueChange={([val]) => onRoughnessChange(val)}
-            min={0}
-            max={1}
-            step={0.01}
-            className="w-full"
-          />
+          <div className="flex bg-zinc-900 border border-white/5 p-1 rounded-lg">
+             <button 
+               onClick={() => onFlatShadingChange(false)}
+               className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${!flatShading ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+             >
+               SMOOTH
+             </button>
+             <button 
+               onClick={() => onFlatShadingChange(true)}
+               className={`px-3 py-1.5 rounded-md text-[10px] font-bold transition-all ${flatShading ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+             >
+               FLAT
+             </button>
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label className="text-zinc-500 text-[10px] uppercase tracking-wide">Metallic</Label>
-            <span className="text-zinc-500 font-mono text-[10px]">{Math.round(metalness * 100)}%</span>
-          </div>
-          <Slider
-            value={[metalness]}
-            onValueChange={([val]) => onMetalnessChange(val)}
-            min={0}
-            max={1}
-            step={0.01}
-            className="w-full"
-          />
-        </div>
       </div>
       
       <div className="space-y-4 pt-4 border-t border-white/5">

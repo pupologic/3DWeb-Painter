@@ -39,9 +39,19 @@ export interface BrushSettings {
   usePressureSize?: boolean;
   usePressureOpacity?: boolean;
   pressureCurve?: number; // 0.5 = soft, 1.0 = linear, 2.0 = firm
+  performanceMode?: boolean;
 };
 
-export type PBRMapType = 'albedo' | 'metalness' | 'roughness' | 'emissive' | 'alpha';
+export type StrokePoint = {
+  pos: THREE.Vector3;
+  pressure: number;
+  opacityPressure: number;
+  normal: THREE.Vector3;
+  angle: number;
+  uv: THREE.Vector2;
+};
+
+export type PBRMapType = 'albedo' | 'metalness' | 'roughness' | 'emissive' | 'alpha' | 'bump';
 
 export interface GPULayer {
   id: string;
@@ -94,10 +104,11 @@ export function useWebGLPaint(
       roughness: null as THREE.WebGLRenderTarget | null,
       emissive: null as THREE.WebGLRenderTarget | null,
       alpha: null as THREE.WebGLRenderTarget | null,
+      bump: null as THREE.WebGLRenderTarget | null,
     },
     
     layers: [] as GPULayer[], // Ref-based source of truth for renderer
-    dirtyChannels: new Set<PBRMapType>(['albedo', 'metalness', 'roughness', 'emissive', 'alpha']), // Mark all dirty on init
+    dirtyChannels: new Set<PBRMapType>(['albedo', 'metalness', 'roughness', 'emissive', 'alpha', 'bump']), // Mark all dirty on init
     
     decalScene: new THREE.Scene(),
     decalCamera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1),
@@ -139,6 +150,10 @@ export function useWebGLPaint(
     lastHitUV: new THREE.Vector2(),
     hasSnapshot: false,
     lastFollowAngle: 0,
+    strokeBBox: { minX: 1, minY: 1, maxX: 0, maxY: 0 },
+    strokeProxyTarget: null as THREE.WebGLRenderTarget | null,
+    isUsingProxy: false,
+    strokePoints: [] as StrokePoint[],
   });
 
   const undoStackRef = useRef<{ layerId: string; target: THREE.WebGLRenderTarget, isMask: boolean }[]>([]);
@@ -147,8 +162,10 @@ export function useWebGLPaint(
   // ---- Setup ----
   const initPaintSystem = useCallback((size: number) => {
     const state = stateRef.current;
+    const oldSize = state.textureSize;
+
     // Avoid redundant initialization if size is the same and we have layers
-    if (state.compositeTarget && state.textureSize === size && state.layers.length > 0) {
+    if (state.compositeTarget && oldSize === size && state.layers.length > 0) {
       return;
     }
 
@@ -157,6 +174,7 @@ export function useWebGLPaint(
     if (state.dilatedTarget) state.dilatedTarget.dispose();
     if (state.uvMaskTarget) state.uvMaskTarget.dispose();
     if (state.snapshotTarget) state.snapshotTarget.dispose();
+    if (state.strokeProxyTarget) state.strokeProxyTarget.dispose();
 
     state.textureSize = size;
     const targetOpts = {
@@ -170,6 +188,7 @@ export function useWebGLPaint(
     state.dilatedTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
     state.uvMaskTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
     state.snapshotTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
+    state.strokeProxyTarget = new THREE.WebGLRenderTarget(size / 2, size / 2, targetOpts);
 
     state.pbrTargets = {
       albedo: new THREE.WebGLRenderTarget(size, size, targetOpts),
@@ -177,15 +196,53 @@ export function useWebGLPaint(
       roughness: new THREE.WebGLRenderTarget(size, size, targetOpts),
       emissive: new THREE.WebGLRenderTarget(size, size, targetOpts),
       alpha: new THREE.WebGLRenderTarget(size, size, targetOpts),
+      bump: new THREE.WebGLRenderTarget(size, size, targetOpts),
     };
 
-    // Clear layers if resolution changed
-    if (state.textureSize !== size) {
-      state.layers.forEach(l => {
-        l.target?.dispose();
-        l.maskTarget?.dispose();
+    // Helper to migrate texture data to new resolution
+    const migrateTarget = (oldTarget: THREE.WebGLRenderTarget) => {
+      const newTarget = new THREE.WebGLRenderTarget(size, size, targetOpts);
+      const renderer = gl;
+      const currentRT = renderer.getRenderTarget();
+      
+      renderer.setRenderTarget(newTarget);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear();
+      
+      const mat = new THREE.MeshBasicMaterial({ 
+        map: oldTarget.texture, 
+        transparent: true, 
+        depthTest: false, 
+        depthWrite: false, 
+        blending: THREE.NoBlending 
       });
-      state.layers = [];
+      
+      // Use the composite quad to render
+      const oldMat = state.compositeQuad.material;
+      state.compositeQuad.material = mat;
+      renderer.render(state.compositeScene, state.compositeCamera);
+      state.compositeQuad.material = oldMat;
+      mat.dispose();
+      
+      renderer.setRenderTarget(currentRT);
+      oldTarget.dispose();
+      return newTarget;
+    };
+
+    // Migrate layers if resolution changed
+    if (oldSize !== size && oldSize > 0) {
+      state.layers.forEach(l => {
+        if (l.target) l.target = migrateTarget(l.target);
+        if (l.maskTarget) l.maskTarget = migrateTarget(l.maskTarget);
+      });
+      
+      // Also migrate undo/redo stacks to prevent size mismatch artifacts
+      undoStackRef.current.forEach(item => {
+        item.target = migrateTarget(item.target);
+      });
+      redoStackRef.current.forEach(item => {
+        item.target = migrateTarget(item.target);
+      });
     }
 
     // ONLY add base layer if there are NO layers
@@ -196,6 +253,7 @@ export function useWebGLPaint(
     state.decalMesh.material = state.brushMaterial;
     state.decalMesh.frustumCulled = false;
     state.decalScene.add(state.decalMesh);
+    state.compositeQuad.frustumCulled = false;
     state.compositeScene.add(state.compositeQuad);
 
     state.previewCanvas.width = 512; // Sufficient for UI preview
@@ -214,6 +272,7 @@ export function useWebGLPaint(
     stateRef.current.dirtyChannels.add('roughness');
     stateRef.current.dirtyChannels.add('emissive');
     stateRef.current.dirtyChannels.add('alpha');
+    stateRef.current.dirtyChannels.add('bump');
     stateRef.current.needsComposite = true;
   }, []);
 
@@ -222,6 +281,9 @@ export function useWebGLPaint(
     // Copy data from source to clone
     const renderer = gl;
     const currentTarget = renderer.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+    
     renderer.setRenderTarget(clone);
     // Use the composite scene/quad to blit the texture
     const mat = new THREE.MeshBasicMaterial({ 
@@ -237,6 +299,7 @@ export function useWebGLPaint(
     stateRef.current.compositeQuad.material = oldMat;
     mat.dispose();
     renderer.setRenderTarget(currentTarget);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
     return clone;
   }, [gl]);
 
@@ -248,9 +311,11 @@ export function useWebGLPaint(
       state.dirtyChannels.add('roughness');
       state.dirtyChannels.add('emissive');
       state.dirtyChannels.add('alpha');
+      state.dirtyChannels.add('bump');
     } else {
       state.dirtyChannels.add(type);
     }
+    if (state.staggerStep === 0) state.staggerStep = 1;
     state.needsComposite = true;
   }, []);
 
@@ -271,6 +336,9 @@ export function useWebGLPaint(
 
     // Clear it
     const oldRT = gl.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+
     gl.setRenderTarget(newTarget);
     
     // Check real current layers length to decide on clear color
@@ -283,6 +351,7 @@ export function useWebGLPaint(
     
     gl.clear();
     gl.setRenderTarget(oldRT);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
 
     const newLayer: GPULayer = {
       id: THREE.MathUtils.generateUUID(),
@@ -343,9 +412,23 @@ export function useWebGLPaint(
     opacityPressure: number = 1.0,
     normal: THREE.Vector3 = new THREE.Vector3(0, 0, 1),
     angle: number = 0.0,
-    uv: THREE.Vector2 = new THREE.Vector2()
+    uv: THREE.Vector2 = new THREE.Vector2(),
+    isReplaying: boolean = false
   ) => {
     const state = stateRef.current;
+    
+    // Record point for Performance Mode replay
+    if (state.isUsingProxy && !isReplaying) {
+      state.strokePoints.push({
+        pos: worldPos.clone(),
+        pressure: sizePressure,
+        opacityPressure,
+        normal: normal.clone(),
+        angle,
+        uv: uv.clone()
+      });
+    }
+
     const { color, opacity, hardness, type, mode, size, blurStrength, smudgeStrength } = brushSettings;
 
     const dist = camera.position.distanceTo(worldPos);
@@ -510,15 +593,18 @@ export function useWebGLPaint(
         state.snapshotTarget?.texture || null,
         smudgeDisplacement,
         blurStrength || 1.0,
-        state.textureSize,
+        state.isUsingProxy ? state.textureSize / 2 : state.textureSize,
         smudgeStrength !== undefined ? smudgeStrength : 1.0
       );
       
       // Render
       const oldRT = gl.getRenderTarget();
+      const oldAutoClear = gl.autoClear;
       gl.autoClear = false;
+      
       const targetRT = (activeLayer.isEditingMask && activeLayer.maskTarget) ? activeLayer.maskTarget : activeLayer.target;
-      gl.setRenderTarget(targetRT);
+      const finalTarget = state.isUsingProxy ? state.strokeProxyTarget : targetRT;
+      gl.setRenderTarget(finalTarget);
 
       const renderDecal = () => {
         if (groupRef.current) {
@@ -573,7 +659,7 @@ export function useWebGLPaint(
             state.snapshotTarget?.texture || null,
             smudgeDisplacement,
             blurStrength || 1.0,
-            state.textureSize,
+            state.isUsingProxy ? state.textureSize / 2 : state.textureSize,
             smudgeStrength !== undefined ? smudgeStrength : 1.0
           );
           renderDecal();
@@ -638,7 +724,7 @@ export function useWebGLPaint(
               state.snapshotTarget?.texture || null,
               smudgeDisplacement,
               blurStrength || 1.0,
-              state.textureSize,
+              state.isUsingProxy ? state.textureSize / 2 : state.textureSize,
               smudgeStrength !== undefined ? smudgeStrength : 1.0
             );
             renderDecal();
@@ -647,7 +733,7 @@ export function useWebGLPaint(
       }
 
       gl.setRenderTarget(oldRT);
-      gl.autoClear = true;
+      gl.autoClear = oldAutoClear;
       markChannelDirty(activeLayer.mapType);
     }
   }, [brushSettings, gl, activeStencil, camera, canvasSize.height, groupRef, markChannelDirty]);
@@ -671,10 +757,40 @@ export function useWebGLPaint(
 
     state.lastHitPoint.copy(intersection.point);
     state.lastPressure = pressure;
+
+    const uv = intersection.uv?.clone() || new THREE.Vector2();
+    state.strokeBBox = { minX: uv.x, minY: uv.y, maxX: uv.x, maxY: uv.y };
+    state.strokePoints = [];
+
     saveUndoState();
     
     const activeLine = getActiveLayer();
     if (activeLine) {
+      state.isUsingProxy = !!(brushSettings.performanceMode && activeLine.target && (mode === 'paint' || mode === 'erase'));
+      if (state.isUsingProxy && state.strokeProxyTarget) {
+        const renderer = gl;
+        const currentRT = renderer.getRenderTarget();
+        const sourceRT = (activeLine.isEditingMask && activeLine.maskTarget) ? activeLine.maskTarget : activeLine.target;
+        
+        renderer.setRenderTarget(state.strokeProxyTarget);
+        renderer.setClearColor(0x000000, 0);
+        renderer.clear();
+        
+        const mat = new THREE.MeshBasicMaterial({ 
+          map: sourceRT!.texture, 
+          transparent: true, 
+          depthTest: false, 
+          depthWrite: false, 
+          blending: THREE.NoBlending 
+        });
+        const oldMat = state.compositeQuad.material;
+        state.compositeQuad.material = mat;
+        renderer.render(state.compositeScene, state.compositeCamera);
+        state.compositeQuad.material = oldMat;
+        mat.dispose();
+        renderer.setRenderTarget(currentRT);
+      }
+
       const normal = intersection.face?.normal.clone() || new THREE.Vector3(0, 0, 1);
       if (intersection.object) normal.transformDirection(intersection.object.matrixWorld).normalize();
       
@@ -747,6 +863,13 @@ export function useWebGLPaint(
     if (!activeLayer) return;
 
     const targetUV = intersection.uv?.clone() || new THREE.Vector2();
+
+    // Update stroke bounding box
+    state.strokeBBox.minX = Math.min(state.strokeBBox.minX, targetUV.x);
+    state.strokeBBox.maxX = Math.max(state.strokeBBox.maxX, targetUV.x);
+    state.strokeBBox.minY = Math.min(state.strokeBBox.minY, targetUV.y);
+    state.strokeBBox.maxY = Math.max(state.strokeBBox.maxY, targetUV.y);
+
     let currentPoint = intersection.point;
 
     // --- Lazy Mouse logic ---
@@ -855,46 +978,80 @@ export function useWebGLPaint(
   }, [brushSettings.size, brushSettings.spacing, brushSettings.lazyMouse, brushSettings.lazyRadius, brushSettings.type, brushSettings.jitterAngle, brushSettings.jitterOpacity, drawStamp, getActiveLayer, camera, canvasSize.height]);
 
   const stopPainting = useCallback(() => {
-    stateRef.current.isPainting = false;
-    stateRef.current.hasLazyPoint = false;
-    stateRef.current.staggerStep = 1; // Start post-stroke cleanup staggered
-    stateRef.current.needsComposite = true;
-  }, []);
+    const state = stateRef.current;
+    
+    // Commit proxy results if active using HIGH-FIDELITY replay
+    if (state.isUsingProxy && state.strokePoints.length > 0) {
+        const activeLayer = getActiveLayer();
+        if (activeLayer && activeLayer.target) {
+            // 1. Terminate proxy mode to ensure drawStamp renders to full-res
+            state.isUsingProxy = false;
+            
+            // 2. Replay the entire stroke at full resolution
+            state.strokePoints.forEach(p => {
+                drawStamp(p.pos, activeLayer, p.pressure, p.opacityPressure, p.normal, p.angle, p.uv, true);
+            });
+            
+            // 3. Clear proxy buffer
+            if (state.strokeProxyTarget) {
+                const renderer = gl;
+                const currentRT = renderer.getRenderTarget();
+                renderer.setRenderTarget(state.strokeProxyTarget);
+                renderer.setClearColor(0x000000, 0);
+                renderer.clear();
+                renderer.setRenderTarget(currentRT);
+            }
+        }
+    }
+
+    state.isPainting = false;
+    state.isUsingProxy = false;
+    state.strokePoints = [];
+    state.hasLazyPoint = false;
+    state.staggerStep = 1; // Start post-stroke cleanup staggered
+    state.needsComposite = true;
+  }, [gl, getActiveLayer, drawStamp]);
 
   const syncPreviewCanvas = useCallback(() => {
     const state = stateRef.current;
-    if (!state.previewContext || !state.dilatedTarget || !state.previewTarget || !state.previewBlitMaterial) return;
+    if (!state.previewContext || !state.previewTarget || !state.previewBlitMaterial) return;
+
+    const activeLayer = layers.find(l => l.id === activeLayerId);
+    const previewChannel = activeLayer ? activeLayer.mapType : 'albedo';
+    const source = state.pbrTargets[previewChannel as PBRMapType] || state.pbrTargets.albedo;
+    if (!source) return;
 
     const size = 512;
     const renderer = gl;
     const oldRT = renderer.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
     
-    // Use pooled resources
     renderer.setRenderTarget(state.previewTarget);
-    state.previewBlitMaterial.map = state.dilatedTarget.texture;
+    gl.setClearColor(0x000000, 1);
+    gl.clear();
+
+    state.previewBlitMaterial.map = source.texture;
     state.compositeQuad.material = state.previewBlitMaterial;
-    renderer.render(state.compositeScene, state.compositeCamera);
     
-    // Read pixels (Expensive!)
+    // Safe render for preview without affecting main scene objects
+    const oldQuadScale = state.compositeQuad.scale.clone();
+    state.compositeQuad.scale.set(1, -1, 1);
+    renderer.render(state.compositeScene, state.compositeCamera);
+    state.compositeQuad.scale.copy(oldQuadScale);
+    
+    // Read pixels
     const pixelBuffer = new Uint8Array(size * size * 4);
     gl.readRenderTargetPixels(state.previewTarget, 0, 0, size, size, pixelBuffer);
     
     const imageData = new ImageData(new Uint8ClampedArray(pixelBuffer), size, size);
     state.previewContext.putImageData(imageData, 0, 0);
 
-    // Efficient flip Y on 2D context
-    const canvas = state.previewCanvas;
-    const ctx = state.previewContext;
-    ctx.save();
-    ctx.globalCompositeOperation = 'copy';
-    ctx.scale(1, -1);
-    ctx.drawImage(canvas, 0, -size);
-    ctx.restore();
-
     renderer.setRenderTarget(oldRT);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
     
     (state.previewCanvas as any).version = ((state.previewCanvas as any).version || 0) + 1;
-  }, [gl]);
+  }, [gl, activeLayerId, layers]);
 
   // Check if a layer is visible by traversing up its folder parents
   const isLayerVisuallyVisible = useCallback((layer: GPULayer, allLayers: GPULayer[]) => {
@@ -925,6 +1082,10 @@ export function useWebGLPaint(
     if (!state.compositeTarget || compositeLayers.length === 0) return;
 
     const oldRT = gl.getRenderTarget();
+    const oldAutoClear = gl.autoClear;
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+
     // --- Render UV Mask if needed ---
     if (state.needsUVMaskUpdate && state.uvMaskTarget) {
       gl.setRenderTarget(state.uvMaskTarget);
@@ -947,15 +1108,28 @@ export function useWebGLPaint(
       gl.setRenderTarget(oldRT);
     }
 
-    const oldAutoClear = gl.autoClear;
-    gl.autoClear = false;
+    // --- Scissor Testing Optimization ---
+    const useScissor = state.isPainting && state.strokeBBox.maxX >= state.strokeBBox.minX;
+    if (useScissor) {
+      const margin = 32; // Margin for dilation (16px) + safety
+      const uvMargin = margin / state.textureSize;
+      const x = Math.floor(Math.max(0, state.strokeBBox.minX - uvMargin) * state.textureSize);
+      const y = Math.floor(Math.max(0, state.strokeBBox.minY - uvMargin) * state.textureSize);
+      const w = Math.ceil(Math.min(1, state.strokeBBox.maxX + uvMargin) * state.textureSize) - x;
+      const h = Math.ceil(Math.min(1, state.strokeBBox.maxY + uvMargin) * state.textureSize) - y;
+      gl.setScissorTest(true);
+      gl.setScissor(x, y, w, h);
+    }
 
     // --- Channel-based Compositing ---
     const channelsToUpdate = Array.from(state.dirtyChannels);
     if (channelsToUpdate.length === 0) {
+      gl.setScissorTest(false);
       gl.autoClear = oldAutoClear;
+      gl.setClearColor(oldClearColor, oldClearAlpha);
       gl.setRenderTarget(oldRT);
       state.needsComposite = false;
+      if (state.staggerStep === 1) state.staggerStep = 2;
       return;
     }
 
@@ -973,6 +1147,8 @@ export function useWebGLPaint(
         gl.setClearColor(0x999999, 1); // standard roughness 0.6ish
       } else if (channel === 'alpha') {
         gl.setClearColor(0xffffff, 1); // Full opaque base
+      } else if (channel === 'bump') {
+        gl.setClearColor(0x000000, 1); // Bump neutral is black
       } else {
         gl.setClearColor(0xffffff, 1);
       }
@@ -994,9 +1170,17 @@ export function useWebGLPaint(
         gl.clear();
 
         if (layer.maskEnabled && layer.maskTarget) {
-            mat.setLayerMasked(layer.target.texture, currentSrc.texture, layer.maskTarget.texture, layer.opacity, layer.blendMode, layer.intensity || 1.0);
+            let layerTex = layer.target.texture;
+            if (state.isUsingProxy && layer.id === activeLayerId && state.strokeProxyTarget) {
+                layerTex = state.strokeProxyTarget.texture;
+            }
+            mat.setLayerMasked(layerTex, currentSrc.texture, layer.maskTarget.texture, layer.opacity, layer.blendMode, layer.intensity || 1.0);
         } else {
-            mat.setLayer(layer.target.texture, currentSrc.texture, layer.opacity, layer.blendMode, layer.intensity || 1.0);
+            let layerTex = layer.target.texture;
+            if (state.isUsingProxy && layer.id === activeLayerId && state.strokeProxyTarget) {
+                layerTex = state.strokeProxyTarget.texture;
+            }
+            mat.setLayer(layerTex, currentSrc.texture, layer.opacity, layer.blendMode, layer.intensity || 1.0);
         }
 
         state.compositeQuad.material = mat;
@@ -1014,14 +1198,9 @@ export function useWebGLPaint(
       // Run Dilation for this channel
       if (state.uvMaskTarget) {
           gl.setRenderTarget(targetRT);
-          gl.setClearColor(0x000000, 0);
-          gl.clear();
           
-          // Optimization: Skip heavy dilation during painting for non-albedo channels
-          let currentRadius = (state.isPainting) ? 2.0 : 16.0;
-          if (state.isPainting && channel !== 'albedo') {
-            currentRadius = 0.5; // Minimal dilation
-          }
+          // Optimization: Standardized 16px radius. Scissor test handles the performance.
+          const currentRadius = 16.0;
 
           state.dilationMaterial.setMap(currentSrc.texture, (state.uvMaskTarget as THREE.WebGLRenderTarget).texture, state.textureSize, state.textureSize, currentRadius);
           state.compositeQuad.material = state.dilationMaterial;
@@ -1039,10 +1218,13 @@ export function useWebGLPaint(
     state.dirtyChannels.clear();
     state.lastCompositeResult = state.pbrTargets.albedo; 
     
+    gl.setScissorTest(false);
     gl.autoClear = oldAutoClear;
+    gl.setClearColor(oldClearColor, oldClearAlpha);
     gl.setRenderTarget(oldRT);
     state.needsComposite = false;
-  }, [gl, isLayerVisuallyVisible]);
+    if (state.staggerStep === 1) state.staggerStep = 2;
+  }, [gl, isLayerVisuallyVisible, syncPreviewCanvas, activeLayerId]);
 
   useEffect(() => {
     let animId: number;
@@ -1204,16 +1386,20 @@ export function useWebGLPaint(
       });
 
       const oldRT = gl.getRenderTarget();
+      const oldClearColor = gl.getClearColor(new THREE.Color());
+      const oldClearAlpha = gl.getClearAlpha();
+
       gl.setRenderTarget(newMaskTarget);
       gl.setClearColor(0xffffff, 1); // White means fully visible
       gl.clear();
       gl.setRenderTarget(oldRT);
+      gl.setClearColor(oldClearColor, oldClearAlpha);
 
       const updated = prev.map(l => 
         l.id === id ? { ...l, maskTarget: newMaskTarget, maskEnabled: true, isEditingMask: true } : l
       );
       state.layers = updated;
-      state.needsComposite = true;
+      markChannelDirty(id === activeLayerId ? (prev.find(l=>l.id===id)?.mapType || 'albedo') : 'all');
       return updated;
     });
   }, [gl]);
@@ -1269,7 +1455,7 @@ export function useWebGLPaint(
         [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
       }
       stateRef.current.layers = next;
-      stateRef.current.needsComposite = true;
+      markChannelDirty('all');
       return next;
     });
   }, []);
@@ -1398,6 +1584,9 @@ export function useWebGLPaint(
       });
 
       const oldRT = gl.getRenderTarget();
+      const oldClearColor = gl.getClearColor(new THREE.Color());
+      const oldClearAlpha = gl.getClearAlpha();
+
       gl.setRenderTarget(mergedTarget);
       gl.setClearColor(0x000000, 0);
       gl.clear();
@@ -1426,9 +1615,9 @@ export function useWebGLPaint(
           gl.clear();
 
           if (child.maskEnabled && child.maskTarget) {
-            mat.setLayerMasked(child.target.texture, currentResult.texture, child.maskTarget.texture, child.opacity, child.blendMode as any);
+            mat.setLayerMasked(child.target.texture, currentResult.texture, child.maskTarget.texture, child.opacity, child.blendMode);
           } else {
-            mat.setLayer(child.target.texture, currentResult.texture, child.opacity, child.blendMode as any);
+            mat.setLayer(child.target.texture, currentResult.texture, child.opacity, child.blendMode);
           }
           state.compositeQuad.material = mat;
           gl.render(state.compositeScene, state.compositeCamera);
@@ -1453,6 +1642,7 @@ export function useWebGLPaint(
 
       gl.autoClear = oldAutoClear;
       gl.setRenderTarget(oldRT);
+      gl.setClearColor(oldClearColor, oldClearAlpha);
 
       const newLayer: GPULayer = {
         id: THREE.MathUtils.generateUUID(),
@@ -1493,7 +1683,7 @@ export function useWebGLPaint(
       });
 
       stateRef.current.layers = finalLayers;
-      stateRef.current.needsComposite = true;
+      markChannelDirty('all');
       setActiveLayerId(newLayer.id);
       return finalLayers;
     });
@@ -1508,6 +1698,9 @@ export function useWebGLPaint(
     if (!targetRT) return;
 
     const oldRT = gl.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+
     gl.setRenderTarget(targetRT);
     
     // For masks, a clear sets alpha to 0 (fully hidden)
@@ -1515,8 +1708,9 @@ export function useWebGLPaint(
     gl.setClearColor(0x000000, 0);
     gl.clear();
     gl.setRenderTarget(oldRT);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
 
-    stateRef.current.needsComposite = true;
+    markChannelDirty(active.mapType);
   }, [getActiveLayer, saveUndoState, gl]);
 
   const fillCanvas = useCallback(() => {
@@ -1528,7 +1722,20 @@ export function useWebGLPaint(
     if (!targetRT) return;
 
     const oldRT = gl.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+
     gl.setRenderTarget(targetRT);
+    
+    if (active.isEditingMask) {
+      gl.setClearColor(0xffffff, 1); // White means fully visible
+    } else {
+      gl.setClearColor(brushSettings.color, brushSettings.opacity);
+    }
+    
+    gl.clear();
+    gl.setRenderTarget(oldRT);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
 
     const fillMat = new THREE.MeshBasicMaterial({
       color: brushSettings.color,
@@ -1551,8 +1758,8 @@ export function useWebGLPaint(
     fillMat.dispose();
 
     gl.setRenderTarget(oldRT);
-    stateRef.current.needsComposite = true;
-  }, [getActiveLayer, saveUndoState, gl, brushSettings]);
+    markChannelDirty(active.mapType);
+  }, [getActiveLayer, saveUndoState, gl, brushSettings, markChannelDirty]);
 
   const restoreSnapshotToLayer = useCallback((layerId: string, sourceTarget: THREE.WebGLRenderTarget, isMask: boolean) => {
     const layer = layers.find(l => l.id === layerId);
@@ -1562,6 +1769,9 @@ export function useWebGLPaint(
     if (!targetToRestore) return;
 
     const oldRT = gl.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+
     gl.setRenderTarget(targetToRestore);
     // Masks clear to alpha 0 = fully hidden, colors clear to 0
     gl.setClearColor(0x000000, 0);
@@ -1583,8 +1793,9 @@ export function useWebGLPaint(
     blitMat.dispose();
 
     gl.setRenderTarget(oldRT);
-    stateRef.current.needsComposite = true;
-  }, [layers, gl]);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
+    markChannelDirty(layer.mapType);
+  }, [layers, gl, markChannelDirty]);
 
   const undo = useCallback(() => {
     if (undoStackRef.current.length === 0) return;
@@ -1632,6 +1843,8 @@ export function useWebGLPaint(
 
     const oldRT = gl.getRenderTarget();
     const oldAutoClear = gl.autoClear;
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
     gl.autoClear = false;
 
     // --- Reuse main compositing logic concepts ---
@@ -1698,6 +1911,7 @@ export function useWebGLPaint(
     if (!ctx) {
       gl.setRenderTarget(oldRT);
       gl.autoClear = oldAutoClear;
+      gl.setClearColor(oldClearColor, oldClearAlpha);
       return null;
     }
     
@@ -1722,9 +1936,10 @@ export function useWebGLPaint(
 
     gl.setRenderTarget(oldRT);
     gl.autoClear = oldAutoClear;
+    gl.setClearColor(oldClearColor, oldClearAlpha);
     
     // Trigger a normal composite update for the viewport after we messed with the target
-    state.needsComposite = true;
+    markChannelDirty('all');
 
     return finalDataUrl;
   }, [gl, layers]);
@@ -1741,11 +1956,14 @@ export function useWebGLPaint(
           const exportTarget = (target: THREE.WebGLRenderTarget) => {
             const oldRT = gl.getRenderTarget();
             const oldAutoClear = gl.autoClear;
+            const oldClearColor = gl.getClearColor(new THREE.Color());
+            const oldClearAlpha = gl.getClearAlpha();
             
             gl.setRenderTarget(target);
             gl.readRenderTargetPixels(target, 0, 0, width, height, buffer);
             gl.setRenderTarget(oldRT);
             gl.autoClear = oldAutoClear;
+            gl.setClearColor(oldClearColor, oldClearAlpha);
 
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = width;
@@ -1808,6 +2026,8 @@ export function useWebGLPaint(
     const newLayers: GPULayer[] = [];
     const size = state.textureSize;
     const oldRT = gl.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
 
     const totalSteps = layersData.length * 2; // target and mask for each layer
     let completedSteps = 0;
@@ -1837,6 +2057,8 @@ export function useWebGLPaint(
                  img.onload = () => {
                     const tempRT = gl.getRenderTarget();
                     const oldAutoClear = gl.autoClear;
+                    const tempOldClearColor = gl.getClearColor(new THREE.Color());
+                    const tempOldClearAlpha = gl.getClearAlpha();
                     gl.autoClear = false;
 
                     gl.setRenderTarget(target!);
@@ -1867,6 +2089,7 @@ export function useWebGLPaint(
 
                     gl.setRenderTarget(tempRT);
                     gl.autoClear = oldAutoClear;
+                    gl.setClearColor(tempOldClearColor, tempOldClearAlpha);
                     completedSteps++;
                     reportProgress();
                     resolve();
@@ -1893,6 +2116,8 @@ export function useWebGLPaint(
                  img.onload = () => {
                     const tempRT = gl.getRenderTarget();
                     const oldAutoClear = gl.autoClear;
+                    const tempOldClearColor = gl.getClearColor(new THREE.Color());
+                    const tempOldClearAlpha = gl.getClearAlpha();
                     gl.autoClear = false;
 
                     gl.setRenderTarget(maskTarget!);
@@ -1923,6 +2148,7 @@ export function useWebGLPaint(
 
                     gl.setRenderTarget(tempRT);
                     gl.autoClear = oldAutoClear;
+                    gl.setClearColor(tempOldClearColor, tempOldClearAlpha);
                     completedSteps++;
                     reportProgress();
                     resolve();
@@ -1959,6 +2185,7 @@ export function useWebGLPaint(
     }
     
     gl.setRenderTarget(oldRT);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
     
     if (newLayers.length === 0) {
         addLayer('Base Layer');
@@ -2009,6 +2236,9 @@ export function useWebGLPaint(
     state.gradientMaterial.setGradient(color1, color2, start, end, type, camDir, opacity, alpha1, alpha2);
 
     const oldRT = gl.getRenderTarget();
+    const oldAutoClear = gl.autoClear;
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
     gl.autoClear = false;
     gl.setRenderTarget(activeLayer.target);
 
@@ -2026,8 +2256,9 @@ export function useWebGLPaint(
     });
 
     gl.setRenderTarget(oldRT);
-    gl.autoClear = true;
-    state.needsComposite = true;
+    gl.autoClear = oldAutoClear;
+    gl.setClearColor(oldClearColor, oldClearAlpha);
+    markChannelDirty(activeLayer.mapType);
     setLayers([...state.layers]);
   }, [activeLayerId, brushSettings, gl, camera, saveUndoState, groupRef]);
 
@@ -2041,6 +2272,8 @@ export function useWebGLPaint(
     
     // Take snapshot
     const oldRT = gl.getRenderTarget();
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
     gl.setRenderTarget(state.snapshotTarget);
     gl.setClearColor(0x000000, 0);
     gl.clear();
@@ -2058,6 +2291,7 @@ export function useWebGLPaint(
     state.compositeQuad.material = oldMat;
     blitMat.dispose();
     gl.setRenderTarget(oldRT);
+    gl.setClearColor(oldClearColor, oldClearAlpha);
     state.hasSnapshot = true;
   }, [activeLayerId, gl]);
 
@@ -2071,6 +2305,10 @@ export function useWebGLPaint(
 
     // 1. Restore from snapshot
     const oldRT = gl.getRenderTarget();
+    const oldAutoClear = gl.autoClear;
+    const oldClearColor = gl.getClearColor(new THREE.Color());
+    const oldClearAlpha = gl.getClearAlpha();
+
     gl.setRenderTarget(target);
     gl.setClearColor(0x000000, 0);
     gl.clear();
@@ -2114,8 +2352,9 @@ export function useWebGLPaint(
     });
 
     gl.setRenderTarget(oldRT);
-    gl.autoClear = true;
-    state.needsComposite = true;
+    gl.autoClear = oldAutoClear;
+    gl.setClearColor(oldClearColor, oldClearAlpha);
+    if (activeLayer) markChannelDirty(activeLayer.mapType);
   }, [activeLayerId, brushSettings, gl, camera, groupRef]);
 
 
@@ -2134,6 +2373,7 @@ export function useWebGLPaint(
       roughness: stateRef.current.pbrTargets.roughness?.texture || null,
       emissive: stateRef.current.pbrTargets.emissive?.texture || null,
       alpha: stateRef.current.pbrTargets.alpha?.texture || null,
+      bump: stateRef.current.pbrTargets.bump?.texture || null,
     },
     textureSize: { width: stateRef.current.textureSize, height: stateRef.current.textureSize },
     previewCanvas,
