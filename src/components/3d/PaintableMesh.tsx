@@ -109,6 +109,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   );
 
   const [loadingProgress, setLoadingProgress] = useState({ matcap: 0, layers: 0 });
+  const [internalIsPainting, setInternalIsPainting] = useState(false);
 
   useEffect(() => {
     const total = (loadingProgress.matcap + loadingProgress.layers) / 2;
@@ -213,7 +214,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     }
   }, [texture, pbrTextures, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness, bumpScale]);
 
-  const updateCursor = useCallback((hit: THREE.Intersection | undefined, pressure: number = 1.0) => {
+  const updateCursor = useCallback((hit: THREE.Intersection | undefined, pressure: number = 1.0, forceIsPainting?: boolean) => {
     if (hit) {
       const dist = camera.position.distanceTo(hit.point);
       let radius = 0.1;
@@ -235,16 +236,18 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
          normal.transformDirection(hit.object.matrixWorld).normalize();
       }
 
+      const isActuallyPainting = forceIsPainting !== undefined ? forceIsPainting : internalIsPainting;
+
       setCursor({ 
         point: hit.point, 
         normal, 
         radius,
-        lazyPoint: brushSettings.lazyMouse ? lazyPoint.clone() : undefined
+        lazyPoint: (brushSettings.lazyMouse && isActuallyPainting) ? lazyPoint.clone() : undefined
       });
     } else {
       setCursor(null);
     }
-  }, [camera, brushSettings.size, brushSettings.lazyMouse, size.height]);
+  }, [camera, brushSettings.size, brushSettings.lazyMouse, size.height, lazyPoint, internalIsPainting]);
 
   // Hold latest interaction for throttled move
   const latestInteraction = useRef<{ hit: THREE.Intersection, pressure: number } | null>(null);
@@ -335,8 +338,9 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
       
       onPaintingChange?.(true);
+      setInternalIsPainting(true);
       startPainting(hit, pressure);
-      updateCursor(hit, pressure);
+      updateCursor(hit, pressure, true);
       gl.domElement.setPointerCapture(nativeEvent.pointerId);
     },
     [startPainting, updateCursor, onPaintingChange, gl, sampleColor, brushSettings.mode, onBrushSettingsChange, gradientSession, setGradientSession]
@@ -389,11 +393,14 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       }
 
       onPaintingChange?.(false);
+      setInternalIsPainting(false);
       stopPainting();
       
       const nativeEvent = event.nativeEvent;
       try {
-        gl.domElement.releasePointerCapture(nativeEvent.pointerId);
+        if (nativeEvent && nativeEvent.pointerId !== undefined) {
+          gl.domElement.releasePointerCapture(nativeEvent.pointerId);
+        }
       } catch (e) {
         // Ignore if pointer capture was not set
       }
