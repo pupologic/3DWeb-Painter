@@ -1,7 +1,7 @@
 {
   "name": "webflow",
   "private": true,
-  "version": "1.7.2",
+  "version": "1.7.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -62,6 +62,8 @@
     "three": "^0.183.2",
     "three-mesh-bvh": "^0.9.9",
     "vaul": "^1.1.2",
+    "xatlas-three": "^0.2.1",
+    "xatlasjs": "^0.2.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as THREE from 'three';
-import { Box, Boxes, Image as ImageIcon, Save, Columns2, Home, PaintBucket, Sun, Sparkles, Layers, Eclipse, Brush } from 'lucide-react';
+import { Box, Boxes, Image as ImageIcon, Save, Columns2, Home, PaintBucket, Sun, Sparkles, Layers, Eclipse, Brush, Scissors } from 'lucide-react';
 import logoImg from '@/logo/logo.png';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MeshSelector } from '@/components/ui-custom/MeshSelector';
@@ -77,6 +77,7 @@ export interface TopHeaderProps {
   onBumpScaleChange: (v: number) => void;
   pbrMode: boolean;
   onPbrModeChange: (v: boolean) => void;
+  onUVUnwrap: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -92,7 +93,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   colorHistory, layerControls,
   saoEnabled, onSaoEnabledChange, saoIntensity, onSaoIntensityChange, saoScale, onSaoScaleChange,
   bumpScale, onBumpScaleChange,
-  pbrMode, onPbrModeChange
+  pbrMode, onPbrModeChange,
+  onUVUnwrap
 }) => {
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [customBrushes, setCustomBrushes] = useState<BrushSettings[]>(() => {
@@ -214,6 +216,14 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           title="Toggle UV View"
         >
           <Columns2 className="w-4 h-4 md:w-5 h-5" />
+        </button>
+
+        <button
+          onClick={onUVUnwrap}
+          className="text-orange-400 hover:text-orange-300 hover:bg-orange-400/10 transition-colors p-1.5 md:p-2 rounded-md cursor-pointer flex items-center justify-center"
+          title="UV Unwrap (Auto-generate UVs)"
+        >
+          <Scissors className="w-4 h-4 md:w-5 h-5" />
         </button>
         
         <button

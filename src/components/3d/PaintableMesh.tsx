@@ -51,7 +51,7 @@ interface PaintableMeshProps {
   onBrushSettingsChange?: (settings: BrushSettings) => void;
   activeStencil?: OverlayData;
   onColorPainted?: (color: string) => void;
-  onLoadingProgress?: (progress: number, status: string) => void;
+  onLoadingProgress?: (progress: number, status?: string) => void;
   isVisible?: boolean;
   bumpScale?: number;
   
@@ -114,7 +114,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   useEffect(() => {
     const total = (loadingProgress.matcap + loadingProgress.layers) / 2;
     if (onLoadingProgress) {
-      const status = loadingProgress.layers < 100 ? 'Carregando camadas...' : 'Finalizando materiais...';
+      const status = total < 100 ? (loadingProgress.layers < 100 ? 'Carregando camadas...' : 'Finalizando materiais...') : undefined;
       onLoadingProgress(total, status);
     }
   }, [loadingProgress, onLoadingProgress]);

@@ -16,7 +16,14 @@ import { LeftShortcutBar } from '@/components/ui-custom/LeftShortcutBar';
 import { ToolOptionsBar } from '@/components/ui-custom/ToolOptionsBar';
 import { LoadingOverlay } from '@/components/ui-custom/LoadingOverlay';
 import type { GradientSession } from '@/components/3d/PaintableMesh';
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
+import { UVUnwrapper } from '@/services/UVUnwrapper';
 import './App.css';
+
+// Initialize BVH
+(THREE.BufferGeometry.prototype as any).computeBoundsTree = computeBoundsTree;
+(THREE.BufferGeometry.prototype as any).disposeBoundsTree = disposeBoundsTree;
+(THREE.Mesh.prototype as any).raycast = acceleratedRaycast;
 
 export interface ModelPart {
   id: string;
@@ -72,12 +79,26 @@ function App() {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingStatus, setLoadingStatus] = useState('');
+  const [isUnwrapping, setIsUnwrapping] = useState(false);
+  const loadingClearTimerRef = useRef<any>(null);
 
   const [modelTransform, setModelTransform] = useState({
     position: [0, 0, 0] as [number, number, number],
     rotation: [0, 0, 0] as [number, number, number],
     scale: [1, 1, 1] as [number, number, number]
   });
+
+  const clearLoadingOverlay = useCallback((delay = 800) => {
+    if (loadingClearTimerRef.current) clearTimeout(loadingClearTimerRef.current);
+    loadingClearTimerRef.current = setTimeout(() => {
+      setIsLoading(false);
+      setLoadingStatus('');
+      // Delay resetting the guard so lingering updates don't re-trigger it
+      setTimeout(() => setIsUnwrapping(false), 500);
+      loadingClearTimerRef.current = null;
+    }, delay);
+  }, []);
 
   // Shortcut Bar State
   const [isMaskEditing, setIsMaskEditing] = useState(false);
@@ -196,6 +217,7 @@ function App() {
           if (!geom.attributes.normal) {
             geom.computeVertexNormals();
           }
+          geom.computeBoundsTree();
           parts.push({
             id: THREE.MathUtils.generateUUID(),
             name: child.name || `Part ${parts.length + 1}`,
@@ -308,6 +330,46 @@ function App() {
     }
   }, []);
 
+  const handleUVUnwrap = async () => {
+    if (modelParts.length === 0) return;
+    
+    setIsLoading(true);
+    setIsUnwrapping(true);
+    setLoadingProgress(0);
+    setLoadingStatus('UV Unwrapping...');
+    
+    try {
+      const geometries = modelParts.map(p => p.geometry);
+      
+      // Unwrap and pack with progress callback
+      const newGeometries = await UVUnwrapper.packAtlas(geometries, (prog) => {
+        setLoadingProgress(prev => Math.max(prev, prog)); 
+      });
+      
+      const newParts = modelParts.map((part, i) => ({
+        ...part,
+        geometry: newGeometries[i]
+      }));
+
+      // Update state
+      setModelParts(newParts);
+      
+      // Important: wait a tiny bit for React to commit model changes
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Clear canvas as UVs changed
+      handleClear();
+      
+      setLoadingProgress(100);
+      toast.success('UV Unwrap concluído com sucesso!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao realizar UV Unwrap.');
+    } finally {
+      clearLoadingOverlay(1000);
+    }
+  };
+
   const handleObjUpload = useCallback((file: File) => {
     setIsLoading(true);
     setLoadingProgress(0);
@@ -325,6 +387,7 @@ function App() {
             if (!geom.attributes.normal) {
               geom.computeVertexNormals();
             }
+            geom.computeBoundsTree();
             parts.push({
               id: THREE.MathUtils.generateUUID(),
               name: child.name || `Part ${parts.length + 1}`,
@@ -397,7 +460,7 @@ function App() {
 
   return (
     <div className="h-screen bg-[#09090b] text-zinc-100 flex flex-col font-sans">
-      <LoadingOverlay show={isLoading} progress={loadingProgress} />
+      <LoadingOverlay show={isLoading} progress={loadingProgress} status={loadingStatus} />
       <Toaster position="top-right" theme="dark" />
       
       {isDashboard ? (
@@ -457,6 +520,7 @@ function App() {
         onBumpScaleChange={setBumpScale}
         pbrMode={pbrMode}
         onPbrModeChange={handlePbrModeChange}
+        onUVUnwrap={handleUVUnwrap}
       />
 
       <div className="flex-1 flex overflow-hidden bg-[#09090b]">
@@ -519,10 +583,18 @@ function App() {
                 activeStencil={overlays.find(o => o.type === 'stencil' && o.visible)}
                 gradientSession={gradientSession}
                 setGradientSession={setGradientSession}
-                onLoadingProgress={(prog) => {
-                  setLoadingProgress(prog);
+                onLoadingProgress={(prog, status) => {
+                  if (isUnwrapping) return; 
+                  
+                  // Only update if progress is moving forward or if starting a new load (prog=0)
+                  setLoadingProgress(prev => {
+                    if (prog === 0) return 0;
+                    return Math.max(prev, prog);
+                  });
+
+                  if (status) setLoadingStatus(status);
                   if (prog >= 100) {
-                    setTimeout(() => setIsLoading(false), 800);
+                    clearLoadingOverlay(800);
                   }
                 }}
                 isModelVisible={!isLoading}

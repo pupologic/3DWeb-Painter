@@ -153,6 +153,8 @@ export function useWebGLPaint(
     strokeBBox: { minX: 1, minY: 1, maxX: 0, maxY: 0 },
     frameStrokeBBox: { minX: 1, minY: 1, maxX: 0, maxY: 0 },
     targetPool: [] as THREE.WebGLRenderTarget[],
+    lastLazyNormal: new THREE.Vector3(0, 0, 1),
+    lastLazyUV: new THREE.Vector2(),
   });
 
   const undoStackRef = useRef<{ layerId: string; target: THREE.WebGLRenderTarget, isMask: boolean }[]>([]);
@@ -778,10 +780,14 @@ export function useWebGLPaint(
     
     if (brushSettings.lazyMouse) {
       state.lazyPoint.copy(intersection.point);
+      state.lastLazyNormal.copy(intersection.face?.normal || new THREE.Vector3(0, 0, 1));
+      if (intersection.object) state.lastLazyNormal.transformDirection(intersection.object.matrixWorld);
+      state.lastLazyUV.copy(intersection.uv || new THREE.Vector2());
       state.hasLazyPoint = true;
     }
     
     state.lastHitPoint.copy(intersection.point);
+    state.lastPressure = pressure;
     const uvInit = intersection.uv?.clone() || new THREE.Vector2();
     state.lastHitUV.copy(uvInit);
     saveUndoState();
@@ -854,12 +860,12 @@ export function useWebGLPaint(
 
   const paint = useCallback((intersection: THREE.Intersection, targetPressure: number = 1.0) => {
     const state = stateRef.current;
-    if (!state.isPainting) return;
-    
+    if (!state.isPainting || !intersection) return;
+
     const activeLayer = getActiveLayer();
     if (!activeLayer) return;
 
-    const targetUV = intersection.uv?.clone() || new THREE.Vector2();
+    let targetUV = intersection.uv?.clone() || new THREE.Vector2();
 
     // Update stroke bounding box (cumulative for the whole stroke)
     state.strokeBBox.minX = Math.min(state.strokeBBox.minX, targetUV.x);
@@ -874,17 +880,45 @@ export function useWebGLPaint(
     state.frameStrokeBBox.maxY = Math.max(state.frameStrokeBBox.maxY, targetUV.y);
 
     let currentPoint = intersection.point;
+    let currentNormal = intersection.face?.normal.clone() || new THREE.Vector3(0, 0, 1);
+    if (intersection.object) currentNormal.transformDirection(intersection.object.matrixWorld).normalize();
 
     // --- Lazy Mouse logic ---
     if (brushSettings.lazyMouse && state.hasLazyPoint) {
       const lazyRadius = brushSettings.lazyRadius || 0.1;
-      const distToCursor = state.lazyPoint.distanceTo(currentPoint);
       
-      if (distToCursor > lazyRadius) {
-        const dir = new THREE.Vector3().subVectors(currentPoint, state.lazyPoint).normalize();
-        state.lazyPoint.add(dir.multiplyScalar(distToCursor - lazyRadius));
+      // Project to Screen Space (NDC)
+      const vLazy = state.lazyPoint.clone().project(camera);
+      const vMouse = intersection.point.clone().project(camera);
+      
+      const sLazy = new THREE.Vector2(vLazy.x, vLazy.y);
+      const sMouse = new THREE.Vector2(vMouse.x, vMouse.y);
+      const screenDist = sLazy.distanceTo(sMouse);
+      
+      if (screenDist > lazyRadius) {
+        const dir = new THREE.Vector2().subVectors(sMouse, sLazy).normalize();
+        sLazy.add(dir.multiplyScalar(screenDist - lazyRadius));
+        
+        // Raycast back to the mesh surface at the new lazy position
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(sLazy, camera);
+        
+        if (groupRef.current) {
+          const intersects = raycaster.intersectObject(groupRef.current, true);
+          if (intersects.length > 0) {
+            const hit = intersects[0];
+            state.lazyPoint.copy(hit.point);
+            state.lastLazyNormal.copy(hit.face?.normal || new THREE.Vector3(0, 0, 1));
+            if (hit.object) state.lastLazyNormal.transformDirection(hit.object.matrixWorld).normalize();
+            state.lastLazyUV.copy(hit.uv || new THREE.Vector2());
+          }
+        }
       }
+      
+      // Use the stabilized point for painting
       currentPoint = state.lazyPoint.clone();
+      currentNormal = state.lastLazyNormal.clone();
+      targetUV = state.lastLazyUV.clone();
     }
 
     const distance = state.lastHitPoint.distanceTo(currentPoint);
@@ -909,24 +943,63 @@ export function useWebGLPaint(
     const stepDist = Math.max(0.001, worldRadius * brushSettings.spacing);
     const steps = Math.ceil(distance / stepDist);
     
-    // Determine Normal
-    const normal = intersection.face?.normal.clone() || new THREE.Vector3(0, 0, 1);
-    if (intersection.object) normal.transformDirection(intersection.object.matrixWorld).normalize();
+    // Preparation for Surface Probing
+    const ndcStart = state.lastHitPoint.clone().project(camera);
+    const ndcEnd = currentPoint.clone().project(camera);
+    const subRaycaster = new THREE.Raycaster();
+    // @ts-ignore - optimization from three-mesh-bvh
+    subRaycaster.firstHitOnly = true; 
 
     // Interpolate in 3D space and pressure space
     for (let i = 1; i <= steps; i++) {
        const t = i / steps;
-       const lerpPos = new THREE.Vector3().lerpVectors(state.lastHitPoint, currentPoint, t);
        const lerpPressure = THREE.MathUtils.lerp(state.lastPressure, targetPressure, t);
        
+       // Default linear fallback
+       let lerpPos = new THREE.Vector3().lerpVectors(state.lastHitPoint, currentPoint, t);
+       let lerpNormal = currentNormal.clone();
+       let lerpUV = new THREE.Vector2().lerpVectors(state.lastHitUV, targetUV, t);
+
+       // Surface Clinging: Probe surface at interpolated screen coordinate
+       const lerpNDC = new THREE.Vector2().lerpVectors(
+         new THREE.Vector2(ndcStart.x, ndcStart.y),
+         new THREE.Vector2(ndcEnd.x, ndcEnd.y),
+         t
+       );
+
+       subRaycaster.setFromCamera(lerpNDC, camera);
+       if (groupRef.current) {
+         const hits = subRaycaster.intersectObject(groupRef.current, true);
+         if (hits.length > 0) {
+           const hit = hits[0];
+           lerpPos.copy(hit.point);
+           if (hit.face) {
+             lerpNormal.copy(hit.face.normal);
+             if (hit.object) lerpNormal.transformDirection(hit.object.matrixWorld).normalize();
+           }
+           if (hit.uv) lerpUV.copy(hit.uv);
+         }
+       }
+
+       // Update stroke bounding box with the sub-probed UV (crucial for Scissor Testing)
+       state.strokeBBox.minX = Math.min(state.strokeBBox.minX, lerpUV.x);
+       state.strokeBBox.maxX = Math.max(state.strokeBBox.maxX, lerpUV.x);
+       state.strokeBBox.minY = Math.min(state.strokeBBox.minY, lerpUV.y);
+       state.strokeBBox.maxY = Math.max(state.strokeBBox.maxY, lerpUV.y);
+
+       state.frameStrokeBBox.minX = Math.min(state.frameStrokeBBox.minX, lerpUV.x);
+       state.frameStrokeBBox.maxX = Math.max(state.frameStrokeBBox.maxX, lerpUV.x);
+       state.frameStrokeBBox.minY = Math.min(state.frameStrokeBBox.minY, lerpUV.y);
+       state.frameStrokeBBox.maxY = Math.max(state.frameStrokeBBox.maxY, lerpUV.y);
+
        let angle = brushSettings.type === 'texture' ? Math.random() * Math.PI * 2 : 0;
        
        if (brushSettings.followPath) {
-         const moveDir = new THREE.Vector3().subVectors(currentPoint, state.lastHitPoint).normalize();
+         const moveDir = new THREE.Vector3().subVectors(lerpPos, state.lastHitPoint).normalize();
          if (moveDir.lengthSq() > 0.0001) {
-           const up = Math.abs(normal.y) < 0.999 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-           const tangent = new THREE.Vector3().crossVectors(up, normal).normalize();
-           const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+           const up = Math.abs(lerpNormal.y) < 0.999 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+           const tangent = new THREE.Vector3().crossVectors(up, lerpNormal).normalize();
+           const bitangent = new THREE.Vector3().crossVectors(lerpNormal, tangent).normalize();
            
            const localX = moveDir.dot(tangent);
            const localY = moveDir.dot(bitangent);
@@ -958,9 +1031,7 @@ export function useWebGLPaint(
          finalOpacityPressure *= (1.0 - Math.random() * brushSettings.jitterOpacity);
        }
        
-       const lerpUV = new THREE.Vector2().lerpVectors(state.lastHitUV, targetUV, t);
-       
-       drawStamp(lerpPos, activeLayer, sPressure, finalOpacityPressure, normal, angle, lerpUV);
+       drawStamp(lerpPos, activeLayer, sPressure, finalOpacityPressure, lerpNormal, angle, lerpUV);
        state.lastHitUV.copy(lerpUV);
 
        // Accumulate: Update snapshot more frequently for smudge to prevent tearing during fast moves
@@ -971,7 +1042,6 @@ export function useWebGLPaint(
     }
 
     // Accumulation: Update snapshot after some steps or at the end of the event
-    // This allows the smudge to "pick up" colors as it moves.
     if ((brushSettings.mode === 'smudge' || brushSettings.mode === 'blur') && (state as any).updateSnapshot) {
         (state as any).updateSnapshot();
     }
