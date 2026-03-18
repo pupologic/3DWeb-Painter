@@ -34,7 +34,7 @@ interface Scene3DProps {
   onLayerControlsReady?: (controls: any) => void;
   activeStencil?: OverlayData;
   onColorPainted?: (color: string) => void;
-  onLoadingProgress?: (progress: number, status: string) => void;
+  onLoadingProgress?: (progress: number, status?: string) => void;
   isModelVisible?: boolean;
   // Gradient Props
   gradientSession?: GradientSession | null;
