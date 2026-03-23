@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as THREE from 'three';
-import { Box, Boxes, Image as ImageIcon, Save, Columns2, Home, PaintBucket, Sun, Sparkles, Layers, Eclipse, Brush, Scissors, Download } from 'lucide-react';
+import { Slider } from '@/components/ui/slider';
+import { Box, Boxes, Image as ImageIcon, Save, Columns2, Home, PaintBucket, Sun, Sparkles, Layers, Eclipse, Brush, Scissors, Download, Settings } from 'lucide-react';
 import logoImg from '@/logo/logo.png';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MeshSelector } from '@/components/ui-custom/MeshSelector';
@@ -76,6 +77,13 @@ export interface TopHeaderProps {
   pbrMode: boolean;
   onPbrModeChange: (v: boolean) => void;
   onUVUnwrap: () => void;
+  onColorChange?: (color: string, isPrimary: boolean) => void;
+  maxHistoryLimit?: number;
+  setMaxHistoryLimit?: (v: number) => void;
+  aoType?: 'n8ao' | 'ssao';
+  setAoType?: (v: 'n8ao' | 'ssao') => void;
+  aoQuality?: 'performance' | 'balanced' | 'high';
+  setAoQuality?: (v: 'performance' | 'balanced' | 'high') => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -92,7 +100,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   saoEnabled, onSaoEnabledChange, saoIntensity, onSaoIntensityChange, saoScale, onSaoScaleChange,
   bumpScale, onBumpScaleChange,
   pbrMode, onPbrModeChange,
-  onUVUnwrap
+  onUVUnwrap, onColorChange,
+  maxHistoryLimit, setMaxHistoryLimit,
+  aoType, setAoType,
+  aoQuality, setAoQuality
 }) => {
   const [isStudioOpen, setIsStudioOpen] = useState(false);
   const [customBrushes, setCustomBrushes] = useState<BrushSettings[]>(() => {
@@ -237,6 +248,75 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <PaintBucket className="w-4 h-4 md:w-5 h-5" />
         </button>
 
+        <Popover>
+          <PopoverTrigger className="text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-colors p-1.5 md:p-2 rounded-md cursor-pointer outline-none" title="Configurações">
+            <Settings className="w-4 h-4 md:w-5 h-5" />
+          </PopoverTrigger>
+          <PopoverContent className="w-64 bg-[#121214] border-white/10 p-5 mt-2 shadow-2xl z-50 overflow-visible" align="end" sideOffset={10}>
+             <div className="space-y-4 pointer-events-auto">
+                <h4 className="text-zinc-100 font-bold text-xs uppercase tracking-wider">Configurações Gerais</h4>
+                <div className="space-y-3 pt-2 border-t border-white/5">
+                   <div className="flex justify-between items-center text-[10px] text-zinc-400 font-bold">
+                      <span>LIMITE DE UNDO</span>
+                      <span className="text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">{maxHistoryLimit}</span>
+                   </div>
+                   <Slider 
+                      value={[maxHistoryLimit || 20]} 
+                      onValueChange={(vals) => setMaxHistoryLimit?.(vals[0])} 
+                      min={5} 
+                      max={100} 
+                      step={1} 
+                   />
+                </div>
+
+                <div className="space-y-3 pt-2 border-t border-white/5">
+                   <div className="text-[10px] text-zinc-400 font-bold uppercase mb-2">Motor de AO</div>
+                   <div className="grid grid-cols-2 gap-1 bg-zinc-900/50 p-1 rounded-lg border border-white/5">
+                      <button 
+                        onClick={() => setAoType?.('n8ao')}
+                        className={`text-[10px] py-1.5 rounded-md font-bold transition-all ${aoType === 'n8ao' ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                      >
+                        N8AO (Suave)
+                      </button>
+                      <button 
+                        onClick={() => setAoType?.('ssao')}
+                        className={`text-[10px] py-1.5 rounded-md font-bold transition-all ${aoType === 'ssao' ? 'bg-zinc-700 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                      >
+                        SSAO (Nítido)
+                      </button>
+                   </div>
+                </div>
+
+                <div className="space-y-3 pt-2 border-t border-white/5">
+                   <div className="text-[10px] text-zinc-400 font-bold uppercase mb-2">Qualidade Global</div>
+                   <div className="grid grid-cols-3 gap-1 bg-zinc-900/50 p-1 rounded-lg border border-white/5">
+                      <button 
+                        onClick={() => setAoQuality?.('performance')}
+                        className={`text-[9px] py-1.5 rounded-md font-bold transition-all ${aoQuality === 'performance' ? 'bg-zinc-700 text-emerald-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                      >
+                        Performance
+                      </button>
+                      <button 
+                        onClick={() => setAoQuality?.('balanced')}
+                        className={`text-[9px] py-1.5 rounded-md font-bold transition-all ${aoQuality === 'balanced' ? 'bg-zinc-700 text-blue-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                      >
+                        Equilibrado
+                      </button>
+                      <button 
+                        onClick={() => setAoQuality?.('high')}
+                        className={`text-[9px] py-1.5 rounded-md font-bold transition-all ${aoQuality === 'high' ? 'bg-zinc-700 text-orange-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                      >
+                        Qualidade
+                      </button>
+                   </div>
+                   <p className="text-[9px] text-zinc-500 italic mt-2 leading-relaxed">
+                     Reduza a qualidade se sentir travamentos no tablet.
+                   </p>
+                </div>
+             </div>
+          </PopoverContent>
+        </Popover>
+
         <div className="w-px h-5 md:h-6 bg-white/10 mx-0.5 md:mx-1" />
 
         <Popover>
@@ -361,7 +441,10 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <PopoverContent className="w-80 bg-[#121214] border-white/10 p-5 mt-2" align="end">
             <ColorPicker 
               color={brushSettings.color} 
-              onColorChange={(color) => setBrushSettings({ ...brushSettings, color })} 
+              onColorChange={(color) => {
+                if (onColorChange) onColorChange(color, true);
+                else setBrushSettings((prev: BrushSettings) => ({ ...prev, color }));
+              }} 
               recentColors={colorHistory}
             />
           </PopoverContent>

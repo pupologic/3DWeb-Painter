@@ -26,7 +26,7 @@ export interface BrushSettings {
   jitterAngle?: boolean;
   jitterOpacity?: number;
   symmetryMode?: 'none' | 'mirror' | 'radial';
-  symmetryAxis?: 'x' | 'y' | 'z';
+  symmetryAxis?: 'x' | 'y' | 'z' | 'view' | 'cursor';
   radialPoints?: number;
   followPath?: boolean;
   gradientColor1Transparent?: boolean;
@@ -71,14 +71,13 @@ export interface GPULayer {
   premultipliedAlpha?: boolean;
 }
 
-const MAX_HISTORY = 10;
-
 export function useWebGLPaint(
   groupRef: React.RefObject<THREE.Group | null>,
   brushSettings: BrushSettings,
   updateDependencies: any[] = [],
   activeStencil?: OverlayData,
-  onColorPainted?: (color: string) => void
+  onColorPainted?: (color: string) => void,
+  maxHistoryLimit: number = 20
 ) {
   const { gl, camera, size: canvasSize } = useThree();
   const onColorPaintedRef = useRef(onColorPainted);
@@ -86,6 +85,7 @@ export function useWebGLPaint(
 
   const [layers, setLayers] = useState<GPULayer[]>([]);
   const [activeLayerId, setActiveLayerId] = useState<string | null>(null);
+  const [systemVersion, setSystemVersion] = useState(0);
 
   const stateRef = useRef({
     textureSize: 2048,
@@ -145,6 +145,7 @@ export function useWebGLPaint(
     staggerStep: 0, // 0: Idle, 1: Full Dilation, 2: Sync Preview
     lazyPoint: new THREE.Vector3(),
     hasLazyPoint: false,
+    cursorSymmetryLock: null as { origin: THREE.Vector3, axis: THREE.Vector3 } | null,
     
     // Stencil State
     stencilTexture: null as THREE.Texture | null,
@@ -214,6 +215,8 @@ export function useWebGLPaint(
       alpha: new THREE.WebGLRenderTarget(size, size, targetOpts),
       bump: new THREE.WebGLRenderTarget(size, size, targetOpts),
     };
+
+    setSystemVersion(v => v + 1);
 
     // Helper to migrate texture data to new resolution
     const migrateTarget = (oldTarget: THREE.WebGLRenderTarget) => {
@@ -424,11 +427,11 @@ export function useWebGLPaint(
   // ---- Painting Logic ----
   const saveUndoStateManual = useCallback((layerId: string, target: THREE.WebGLRenderTarget, isMask: boolean) => {
     undoStackRef.current.push({ layerId, target, isMask });
-    if (undoStackRef.current.length > MAX_HISTORY) {
+    if (undoStackRef.current.length > maxHistoryLimit) {
         const oldest = undoStackRef.current.shift();
         if (oldest) returnTargetToPool(oldest.target);
     }
-  }, [returnTargetToPool]);
+  }, [returnTargetToPool, maxHistoryLimit]);
 
   const saveUndoState = useCallback(() => {
     const active = getActiveLayer();
@@ -446,14 +449,13 @@ export function useWebGLPaint(
     }
   }, [getActiveLayer, cloneTarget, saveUndoStateManual, returnTargetToPool]);
 
-  // Handle Redo stack similarly
   const saveRedoState = useCallback((target: THREE.WebGLRenderTarget, layerId: string, isMask: boolean) => {
     redoStackRef.current.push({ layerId, target, isMask });
-    if (redoStackRef.current.length > MAX_HISTORY) {
+    if (redoStackRef.current.length > maxHistoryLimit) {
         const oldest = redoStackRef.current.shift();
         if (oldest) returnTargetToPool(oldest.target);
     }
-  }, [returnTargetToPool]);
+  }, [returnTargetToPool, maxHistoryLimit]);
 
   const drawStamp = useCallback((
     worldPos: THREE.Vector3, 
@@ -623,22 +625,84 @@ export function useWebGLPaint(
       renderDecal(worldPos, worldRadius);
 
       // Advanced Symmetry
-      if (brushSettings.symmetryMode && brushSettings.symmetryMode !== 'none') {
+      if (brushSettings.symmetryMode && brushSettings.symmetryMode !== 'none' && groupRef.current) {
         const symMode = brushSettings.symmetryMode;
         const axis = brushSettings.symmetryAxis || 'x';
         
-        if (symMode === 'mirror' && groupRef.current) {
+        const snapSymmetryPoint = (theoreticalPos: THREE.Vector3, theoreticalNormal: THREE.Vector3, objectRoot: THREE.Object3D) => {
+            const symRaycaster = new THREE.Raycaster();
+            const rayOrigin = theoreticalPos.clone().addScaledVector(theoreticalNormal, 5.0);
+            const rayDir = theoreticalNormal.clone().negate();
+            symRaycaster.set(rayOrigin, rayDir);
+            const hits = symRaycaster.intersectObject(objectRoot, true);
+            if (hits.length > 0 && hits[0].face) {
+                let snappedNorm = hits[0].face.normal.clone();
+                if (hits[0].object) snappedNorm.transformDirection(hits[0].object.matrixWorld).normalize();
+                return { pos: hits[0].point, norm: snappedNorm, hit: true };
+            }
+            // Fallback to theoretical point if raycast misses
+            return { pos: theoreticalPos, norm: theoreticalNormal, hit: false };
+        };
+
+        // Calculate custom axis and origin for 'view' mode or standard modes
+        let localOrigin = groupRef.current.worldToLocal(worldPos.clone());
+        const invMatrix = groupRef.current.matrixWorld.clone().invert();
+        let localNormalOrigin = normal.clone().transformDirection(invMatrix);
+
+        let rotateAxis = new THREE.Vector3(
+          axis === 'x' ? 1 : 0,
+          axis === 'y' ? 1 : 0,
+          axis === 'z' ? 1 : 0
+        );
+
+        if (axis === 'view') {
+          const screenRay = new THREE.Raycaster();
+          screenRay.setFromCamera(new THREE.Vector2(0, 0), camera);
+          const hits = screenRay.intersectObject(groupRef.current, true);
+          if (hits.length > 0) {
+             localOrigin = groupRef.current.worldToLocal(hits[0].point.clone());
+             const viewNormal = hits[0].face?.normal?.clone() || camera.getWorldDirection(new THREE.Vector3()).negate();
+             if (hits[0].face && hits[0].object) {
+                viewNormal.transformDirection(hits[0].object.matrixWorld).normalize();
+             }
+             rotateAxis = viewNormal.transformDirection(invMatrix).normalize();
+          } else {
+             rotateAxis = normal.clone().transformDirection(invMatrix).normalize();
+          }
+        } else if (axis === 'cursor') {
+          if (state.cursorSymmetryLock) {
+            localOrigin = state.cursorSymmetryLock.origin.clone();
+            rotateAxis = state.cursorSymmetryLock.axis.clone();
+          } else {
+            // Fallback, although lockSymmetryCursor should always be called first
+            localOrigin = groupRef.current.worldToLocal(worldPos.clone());
+            rotateAxis = normal.clone().transformDirection(invMatrix).normalize();
+          }
+        }
+
+        if (symMode === 'mirror') {
+          // Perform symmetry exactly in the model's local coordinate space
           const localPos = groupRef.current.worldToLocal(worldPos.clone());
-          const localNormal = normal.clone(); // Normal rotation is handled by world transformation later
+          const localNormal = normal.clone().transformDirection(invMatrix);
           
           if (axis === 'x') { localPos.x *= -1; localNormal.x *= -1; }
           else if (axis === 'y') { localPos.y *= -1; localNormal.y *= -1; }
           else if (axis === 'z') { localPos.z *= -1; localNormal.z *= -1; }
+          else if (axis === 'view') {
+              const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(rotateAxis, localOrigin);
+              const dist = plane.distanceToPoint(localPos);
+              localPos.addScaledVector(rotateAxis, -2 * dist);
+              localNormal.reflect(rotateAxis).normalize();
+          }
           
-          const mirroredPos = groupRef.current.localToWorld(localPos);
-          const mirroredNormal = localNormal.clone(); 
-          // Re-normalize and potentially re-transform direction if needed, 
-          // but decal projector uses worldPos/normal.
+          let mirroredPos = groupRef.current.localToWorld(localPos);
+          let mirroredNormal = localNormal.transformDirection(groupRef.current.matrixWorld).normalize();
+          
+          const snapped = snapSymmetryPoint(mirroredPos, mirroredNormal, groupRef.current);
+          if (snapped.hit) {
+            mirroredPos = snapped.pos;
+            mirroredNormal = snapped.norm;
+          }
           
           // View-Projection Matrix
           const vpMatrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -668,48 +732,28 @@ export function useWebGLPaint(
           );
           renderDecal(mirroredPos, worldRadius);
         } 
-        else if (symMode === 'radial' && groupRef.current) {
+        else if (symMode === 'radial') {
           const points = brushSettings.radialPoints || 4;
           const angleStep = (Math.PI * 2) / points;
-          
-          const localOrigin = groupRef.current.worldToLocal(worldPos.clone());
-          
+
           for (let i = 1; i < points; i++) {
-            const localPos = localOrigin.clone();
-            const localNormal = normal.clone();
             const theta = angleStep * i;
             
-            if (axis === 'y') {
-              // Rotate around Y axis in LOCAL space
-              const x = localOrigin.x * Math.cos(theta) - localOrigin.z * Math.sin(theta);
-              const z = localOrigin.x * Math.sin(theta) + localOrigin.z * Math.cos(theta);
-              localPos.set(x, localOrigin.y, z);
-              
-              const nx = normal.x * Math.cos(theta) - normal.z * Math.sin(theta);
-              const nz = normal.x * Math.sin(theta) + normal.z * Math.cos(theta);
-              localNormal.set(nx, normal.y, nz);
-            } else if (axis === 'x') {
-              // Rotate around X axis in LOCAL space
-              const y = localOrigin.y * Math.cos(theta) - localOrigin.z * Math.sin(theta);
-              const z = localOrigin.y * Math.sin(theta) + localOrigin.z * Math.cos(theta);
-              localPos.set(localOrigin.x, y, z);
-              
-              const ny = normal.y * Math.cos(theta) - normal.z * Math.sin(theta);
-              const nz = normal.y * Math.sin(theta) + normal.z * Math.cos(theta);
-              localNormal.set(normal.x, ny, nz);
-            } else if (axis === 'z') {
-              // Rotate around Z axis in LOCAL space
-              const x = localOrigin.x * Math.cos(theta) - localOrigin.y * Math.sin(theta);
-              const y = localOrigin.x * Math.sin(theta) + localOrigin.y * Math.cos(theta);
-              localPos.set(x, y, localOrigin.z);
-              
-              const nx = normal.x * Math.cos(theta) - normal.y * Math.sin(theta);
-              const ny = normal.x * Math.sin(theta) + normal.y * Math.cos(theta);
-              localNormal.set(nx, ny, normal.z);
-            }
+            // To rotate around an arbitrary origin, we shift, rotate, and shift back
+            const shiftedPos = groupRef.current.worldToLocal(worldPos.clone()).sub(localOrigin);
+            shiftedPos.applyAxisAngle(rotateAxis, theta);
+            const localPos = shiftedPos.add(localOrigin);
             
-            const radialPos = groupRef.current.localToWorld(localPos);
-            const radialNormal = localNormal.clone();
+            const localNormal = localNormalOrigin.clone().applyAxisAngle(rotateAxis, theta);
+            
+            let radialPos = groupRef.current.localToWorld(localPos);
+            let radialNormal = localNormal.transformDirection(groupRef.current.matrixWorld).normalize();
+
+            const snapped = snapSymmetryPoint(radialPos, radialNormal, groupRef.current);
+            if (snapped.hit) {
+              radialPos = snapped.pos;
+              radialNormal = snapped.norm;
+            }
 
             // View-Projection Matrix
             const vpMatrix = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -804,6 +848,7 @@ export function useWebGLPaint(
       if (intersection.object) state.lastLazyNormal.transformDirection(intersection.object.matrixWorld);
       state.lastLazyUV.copy(intersection.uv || new THREE.Vector2());
       state.hasLazyPoint = true;
+      state.breakStroke = false; // PREVENTS paint() FROM OVERWRITING THIS ANCHOR ON THE FIRST MOVE
     }
     
     state.lastHitPoint.copy(intersection.point);
@@ -2655,20 +2700,33 @@ export function useWebGLPaint(
   const texture = stateRef.current.dilatedTarget?.texture || null;
   const previewCanvas = stateRef.current.previewCanvas;
 
+  const pbrTextures = useMemo(() => ({
+    albedo: stateRef.current.pbrTargets.albedo?.texture || null,
+    metalness: stateRef.current.pbrTargets.metalness?.texture || null,
+    roughness: stateRef.current.pbrTargets.roughness?.texture || null,
+    emissive: stateRef.current.pbrTargets.emissive?.texture || null,
+    alpha: stateRef.current.pbrTargets.alpha?.texture || null,
+    bump: stateRef.current.pbrTargets.bump?.texture || null,
+  }), [systemVersion]);
+
+  const lockSymmetryCursor = useCallback((worldPos: THREE.Vector3, normal: THREE.Vector3) => {
+    const state = stateRef.current;
+    if (!groupRef.current) return;
+    const invMatrix = groupRef.current.matrixWorld.clone().invert();
+    state.cursorSymmetryLock = {
+        origin: groupRef.current.worldToLocal(worldPos.clone()),
+        axis: normal.clone().transformDirection(invMatrix).normalize()
+    };
+  }, [groupRef]);
+
   return useMemo(() => ({
     initPaintSystem,
     startPainting,
     paint,
     stopPainting,
+    lockSymmetryCursor,
     texture,
-    pbrTextures: {
-      albedo: stateRef.current.pbrTargets.albedo?.texture || null,
-      metalness: stateRef.current.pbrTargets.metalness?.texture || null,
-      roughness: stateRef.current.pbrTargets.roughness?.texture || null,
-      emissive: stateRef.current.pbrTargets.emissive?.texture || null,
-      alpha: stateRef.current.pbrTargets.alpha?.texture || null,
-      bump: stateRef.current.pbrTargets.bump?.texture || null,
-    },
+    pbrTextures,
     textureSize: { width: stateRef.current.textureSize, height: stateRef.current.textureSize },
     previewCanvas,
     syncPreviewCanvas,
@@ -2709,6 +2767,7 @@ export function useWebGLPaint(
     startPainting,
     paint,
     stopPainting,
+    lockSymmetryCursor,
     texture,
     previewCanvas,
     syncPreviewCanvas,
@@ -2741,6 +2800,7 @@ export function useWebGLPaint(
     startGradientPreview,
     previewGradient,
     markChannelDirty,
+    pbrTextures,
     camera,
     gl
   ]);

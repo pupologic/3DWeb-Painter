@@ -169,7 +169,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-full sm:max-w-[800px] h-[75vh] bg-zinc-950 border-white/10 text-white flex flex-col p-0 gap-0 overflow-hidden shadow-2xl">
+      <DialogContent className="w-[95%] sm:max-w-[800px] h-[85vh] sm:h-[75vh] bg-zinc-950 border-white/10 text-white flex flex-col p-0 gap-0 overflow-hidden shadow-2xl">
         <DialogHeader className="p-6 border-b border-white/5 shrink-0">
           <div className="flex justify-between items-center">
             <div>
@@ -184,9 +184,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
           {/* Left Sidebar: Selection */}
-          <div className="w-64 shrink-0 border-r border-white/5 flex flex-col bg-zinc-900/20">
+          <div className="w-full sm:w-64 shrink-0 border-b sm:border-b-0 sm:border-r border-white/5 flex flex-col bg-zinc-900/20 max-h-[40%] sm:max-h-full">
             <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="w-full">
               <TabsList className="w-full bg-transparent border-b border-white/5 rounded-none h-12">
                 <TabsTrigger value="merged" className="flex-1 data-[state=active]:bg-white/5 data-[state=active]:text-white text-zinc-400 rounded-none h-full transition-colors">
@@ -199,7 +199,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                 </TabsTrigger>
               </TabsList>
 
-              <ScrollArea className="flex-1 h-[calc(75vh-220px)]">
+              <ScrollArea className="flex-1 h-32 sm:h-[calc(75vh-220px)]">
                 <div className="p-4 space-y-1">
                   {currentItems.map(item => (
                     <div 
@@ -232,9 +232,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               </ScrollArea>
             </Tabs>
 
-            <div className="mt-auto p-4 border-t border-white/5 bg-zinc-950/50">
+            <div className="mt-auto p-3 sm:p-4 border-t border-white/5 bg-zinc-950/50">
                 <Button 
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-10 shadow-lg shadow-blue-600/10"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-9 sm:h-10 shadow-lg shadow-blue-600/10"
                     disabled={selectedIds.size === 0 || isExporting}
                     onClick={() => handleExport([...selectedIds])}
                 >
@@ -251,7 +251,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
 
           {/* Center: Preview */}
-          <div className="flex-1 min-w-[400px] bg-[#050505] flex flex-col items-center justify-center relative group overflow-hidden">
+          <div className="flex-1 min-w-0 sm:min-w-[400px] bg-[#050505] flex flex-col items-center justify-center relative group overflow-hidden p-4 sm:p-0">
             {isPreviewLoading ? (
                 <div className="flex flex-col items-center gap-3">
                     <div className="w-10 h-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />

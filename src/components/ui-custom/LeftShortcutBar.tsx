@@ -12,10 +12,11 @@ export interface LeftShortcutBarProps {
   isMaskEditing: boolean;
   setIsMaskEditing: (v: boolean) => void;
   primaryColor: string;
-  setPrimaryColor: (v: string) => void;
   secondaryColor: string;
-  setSecondaryColor: (v: string) => void;
   colorHistory: string[];
+  onColorChange: (color: string, isPrimary: boolean) => void;
+  maxHistoryLimit?: number;
+  setMaxHistoryLimit?: (v: number) => void;
 }
 
 export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
@@ -25,28 +26,18 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
   isMaskEditing,
   setIsMaskEditing,
   primaryColor,
-  setPrimaryColor,
   secondaryColor,
-  setSecondaryColor,
-  colorHistory
+  colorHistory,
+  onColorChange
 }) => {
-  const layerColorsRef = React.useRef({ primary: primaryColor, secondary: secondaryColor });
-
   const handleSwapColors = () => {
     const temp = primaryColor;
-    setPrimaryColor(secondaryColor);
-    setSecondaryColor(temp);
-    setBrushSettings({ ...brushSettings, color: secondaryColor, secondaryColor: temp });
+    onColorChange(secondaryColor, true);
+    onColorChange(temp, false);
   };
 
   const handleColorChange = (newColor: string, isPrimary: boolean) => {
-    if (isPrimary) {
-      setPrimaryColor(newColor);
-      setBrushSettings({ ...brushSettings, color: newColor });
-    } else {
-      setSecondaryColor(newColor);
-      setBrushSettings({ ...brushSettings, secondaryColor: newColor });
-    }
+    onColorChange(newColor, isPrimary);
   };
 
   return (
@@ -86,19 +77,11 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
               
               const activeLayer = layerControls?.layers?.find((l: any) => l.id === layerControls.activeLayerId);
               if (activeLayer) {
-                // Save current layer colors before switching to mask
-                layerColorsRef.current = { primary: primaryColor, secondary: secondaryColor };
-                
                 if (!activeLayer.maskTarget) {
                   layerControls.createLayerMask?.(activeLayer.id);
                 }
                 layerControls.setEditingMask?.(activeLayer.id, true);
                 setIsMaskEditing(true);
-                
-                // Set mask colors (White/Black)
-                setPrimaryColor('#ffffff');
-                setSecondaryColor('#000000');
-                setBrushSettings({ ...brushSettings, color: '#ffffff' });
               }
             }}
             title="Mask"
@@ -117,11 +100,6 @@ export const LeftShortcutBar: React.FC<LeftShortcutBarProps> = ({
               if (layerControls?.activeLayerId) {
                 layerControls.setEditingMask?.(layerControls.activeLayerId, false);
                 setIsMaskEditing(false);
-                
-                // Restore layer colors
-                setPrimaryColor(layerColorsRef.current.primary);
-                setSecondaryColor(layerColorsRef.current.secondary);
-                setBrushSettings({ ...brushSettings, color: layerColorsRef.current.primary });
               }
             }}
             title="Layer"

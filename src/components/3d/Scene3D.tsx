@@ -6,7 +6,7 @@ import { PaintableMesh } from './PaintableMesh';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
 import type { OverlayData } from '@/components/ui-custom/OverlayManager';
 import type { GradientSession } from './PaintableMesh';
-import { EffectComposer, N8AO } from '@react-three/postprocessing';
+import { EffectComposer, N8AO, SSAO } from '@react-three/postprocessing';
 
 interface Scene3DProps {
   brushSettings: BrushSettings;
@@ -44,6 +44,9 @@ interface Scene3DProps {
   saoIntensity?: number;
   saoScale?: number;
   bumpScale?: number;
+  maxHistoryLimit?: number;
+  aoType?: 'n8ao' | 'ssao';
+  aoQuality?: 'performance' | 'balanced' | 'high';
 }
 
 const CameraController = ({ focalLength }: { focalLength: number }) => {
@@ -115,6 +118,9 @@ export const Scene3D: React.FC<Scene3DProps> = ({
   saoIntensity = 0.5,
   saoScale = 1.0,
   bumpScale = 1.0,
+  maxHistoryLimit = 20,
+  aoType = 'n8ao',
+  aoQuality = 'balanced',
 }) => {
   const [cameraPosition] = useState<[number, number, number]>([0, 0, 8]);
   const controlsRef = useRef<any>(null);
@@ -184,6 +190,7 @@ export const Scene3D: React.FC<Scene3DProps> = ({
           gradientSession={gradientSession}
           setGradientSession={setGradientSession}
           bumpScale={bumpScale}
+          maxHistoryLimit={maxHistoryLimit}
         />
 
         {/* Lights (all grouped so rotation applies consistently to the lighting setup) */}
@@ -222,14 +229,25 @@ export const Scene3D: React.FC<Scene3DProps> = ({
         {/* Post-processing Effects */}
         {saoEnabled && (
           <EffectComposer>
-            <N8AO 
-              intensity={saoIntensity * 2}
-              aoRadius={saoScale * 0.5}
-              distanceFalloff={1.0}
-              aoSamples={16}
-              denoiseSamples={4}
-              denoiseRadius={12}
-            />
+            {aoType === 'n8ao' ? (
+              <N8AO 
+                intensity={saoIntensity * 2}
+                aoRadius={saoScale * 0.5}
+                distanceFalloff={1.0}
+                aoSamples={aoQuality === 'performance' ? 8 : aoQuality === 'balanced' ? 16 : 32}
+                denoiseSamples={aoQuality === 'performance' ? 2 : 4}
+                denoiseRadius={12}
+                halfRes={aoQuality === 'performance' || aoQuality === 'balanced'}
+              />
+            ) : (
+              <SSAO 
+                intensity={saoIntensity * 10}
+                radius={saoScale * 0.5}
+                luminanceInfluence={0.4}
+                color={new THREE.Color('black')}
+                samples={aoQuality === 'performance' ? 12 : aoQuality === 'balanced' ? 24 : 64}
+              />
+            )}
           </EffectComposer>
         )}
 

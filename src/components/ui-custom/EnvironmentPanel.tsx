@@ -22,12 +22,13 @@ interface EnvironmentPanelProps {
 
 const MATCAPS = [
   { id: null, label: 'Nenhum' },
-  { id: 'gray_clay_010001.png', label: 'Gray Clay' },
-  { id: 'light_grey_010001.png', label: 'Light Grey' },
-  { id: 'merge0001.png', label: 'Merge 1' },
-  { id: 'merge0002.png', label: 'Merge 2' },
-  { id: 'warm_clay_010001.png', label: 'Warm Clay' },
-  { id: 'softlight_grey.png', label: 'Soft Light Grey' },
+  { id: 'soft_clay.png', label: 'Soft Clay' },
+  { id: 'red_clay.png', label: 'Red Clay' },
+  { id: 'grey.png', label: 'Grey' },
+  { id: 'dark_grey.png', label: 'Dark Grey' },
+  { id: 'lighter_grey.png', label: 'Light Grey' },
+  { id: 'lighter_white.png', label: 'White Surface' },
+  { id: 'softlight_grey.png', label: 'Studio Soft' },
 ];
 
 export const EnvironmentPanel: React.FC<EnvironmentPanelProps> = ({

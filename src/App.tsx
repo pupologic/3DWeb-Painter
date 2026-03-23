@@ -41,8 +41,8 @@ const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/
 function App() {
   const [brushSettings, setBrushSettings] = useState<BrushSettings>({
     size: 20,
-    color: '#ff0000',
-    secondaryColor: '#1e40af',
+    color: '#000000',
+    secondaryColor: '#ffffff',
     opacity: 1,
     hardness: 0.8,
     type: 'circle',
@@ -110,9 +110,91 @@ function App() {
 
   // Shortcut Bar State
   const [isMaskEditing, setIsMaskEditing] = useState(false);
-  const [primaryColor, setPrimaryColor] = useState('#ff0000');
-  const [secondaryColor, setSecondaryColor] = useState('#1e40af');
-  const [colorHistory, setColorHistory] = useState<string[]>(['#ff0000']);
+  const [primaryColor, setPrimaryColor] = useState('#000000');
+  const [secondaryColor, setSecondaryColor] = useState('#ffffff');
+  const [colorHistory, setColorHistory] = useState<string[]>(['#000000', '#ffffff']);
+  const [maxHistoryLimit, setMaxHistoryLimit] = useState(() => {
+    const saved = localStorage.getItem('max_undo_history');
+    return saved ? parseInt(saved, 10) : 20;
+  });
+
+  const [aoType, setAoType] = useState<'n8ao' | 'ssao'>(() => {
+    return (localStorage.getItem('ao_type') as 'n8ao' | 'ssao') || 'n8ao';
+  });
+
+  const [aoQuality, setAoQuality] = useState<'performance' | 'balanced' | 'high'>(() => {
+    return (localStorage.getItem('ao_quality') as 'performance' | 'balanced' | 'high') || 'balanced';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('max_undo_history', maxHistoryLimit.toString());
+  }, [maxHistoryLimit]);
+
+  useEffect(() => {
+    localStorage.setItem('ao_type', aoType);
+  }, [aoType]);
+
+  useEffect(() => {
+    localStorage.setItem('ao_quality', aoQuality);
+  }, [aoQuality]);
+  
+  // Cache for colors when switching between PBR channels
+  const [cachedColors, setCachedColors] = useState({ primary: '#000000', secondary: '#ffffff' });
+
+  const syncColorWithBrush = useCallback((newColor: string, isPrimary: boolean) => {
+    if (isPrimary) {
+      setPrimaryColor(newColor);
+      setBrushSettings(prev => ({ ...prev, color: newColor }));
+    } else {
+      setSecondaryColor(newColor);
+      setBrushSettings(prev => ({ ...prev, secondaryColor: newColor }));
+    }
+  }, []);
+
+  const [previewCanvas, setPreviewCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [layerControls, setLayerControls] = useState<any>(null);
+  const lastMapTypeRef = useRef<string>('albedo');
+
+  // Monitor layer changes to auto-adjust colors
+  useEffect(() => {
+    if (!layerControls?.activeLayerId || !layerControls?.layers) return;
+    
+    const activeLayer = layerControls.layers.find((l: any) => l.id === layerControls.activeLayerId);
+    if (!activeLayer) return;
+
+    const mapType = activeLayer.mapType;
+    const isBWLayer = ['metalness', 'roughness', 'alpha', 'bump'].includes(mapType);
+    const isEditingMask = activeLayer.isEditingMask || isMaskEditing;
+    
+    if (isEditingMask || isBWLayer) {
+      if (primaryColor !== '#ffffff' || secondaryColor !== '#000000') {
+        // Save current colors to cache if we are coming from a color layer
+        const lastWasColor = !['metalness', 'roughness', 'alpha', 'bump'].includes(lastMapTypeRef.current || 'albedo');
+        if (lastWasColor) {
+           setCachedColors({ primary: primaryColor, secondary: secondaryColor });
+        }
+
+        setPrimaryColor('#ffffff');
+        setSecondaryColor('#000000');
+        setBrushSettings(prev => {
+          if (prev.color === '#ffffff' && prev.secondaryColor === '#000000') return prev;
+          return { ...prev, color: '#ffffff', secondaryColor: '#000000' };
+        });
+      }
+    } else if (lastMapTypeRef.current !== mapType && (mapType === 'albedo' || mapType === 'emissive')) {
+      // Restore from cache when returning to Albedo/Emissive
+      if (primaryColor !== cachedColors.primary || secondaryColor !== cachedColors.secondary) {
+        setPrimaryColor(cachedColors.primary);
+        setSecondaryColor(cachedColors.secondary);
+        setBrushSettings(prev => {
+          if (prev.color === cachedColors.primary && prev.secondaryColor === cachedColors.secondary) return prev;
+          return { ...prev, color: cachedColors.primary, secondaryColor: cachedColors.secondary };
+        });
+      }
+    }
+    
+    lastMapTypeRef.current = mapType;
+  }, [layerControls?.activeLayerId, layerControls?.layers, isMaskEditing, primaryColor, secondaryColor, cachedColors]);
 
   const handleColorPainted = useCallback((color: string) => {
     setColorHistory(prev => {
@@ -130,8 +212,6 @@ function App() {
   const [flatShading, setFlatShading] = useState(false);
   const [textureResolution, setTextureResolution] = useState<number>(2048);
 
-  const [previewCanvas, setPreviewCanvas] = useState<HTMLCanvasElement | null>(null);
-  const [layerControls, setLayerControls] = useState<any>(null);
   const initialLayersToLoadRef = useRef<any[] | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
@@ -502,7 +582,7 @@ function App() {
         <Dashboard onNewProject={handleNewProject} onLoadProject={handleLoadProject} />
       ) : (
         <>
-          <TopHeader
+            <TopHeader
             setIsDashboard={setIsDashboard}
             modelName={modelName}
             setModelName={setModelName}
@@ -526,6 +606,7 @@ function App() {
             handleFill={handleFill}
             brushSettings={brushSettings}
             setBrushSettings={setBrushSettings}
+            onColorChange={syncColorWithBrush}
             matcapName={matcapName}
             setMatcapName={handleMatcapChange}
             lastMatcap={lastMatcap}
@@ -554,6 +635,12 @@ function App() {
             pbrMode={pbrMode}
             onPbrModeChange={handlePbrModeChange}
             onUVUnwrap={handleUVUnwrap}
+            maxHistoryLimit={maxHistoryLimit}
+            setMaxHistoryLimit={setMaxHistoryLimit}
+            aoType={aoType}
+            setAoType={setAoType}
+            aoQuality={aoQuality}
+            setAoQuality={setAoQuality}
           />
 
           <div className="flex-1 flex overflow-hidden bg-[#09090b]">
@@ -565,10 +652,11 @@ function App() {
                 isMaskEditing={isMaskEditing}
                 setIsMaskEditing={setIsMaskEditing}
                 primaryColor={primaryColor}
-                setPrimaryColor={setPrimaryColor}
                 secondaryColor={secondaryColor}
-                setSecondaryColor={setSecondaryColor}
                 colorHistory={colorHistory}
+                onColorChange={syncColorWithBrush}
+                maxHistoryLimit={maxHistoryLimit}
+                setMaxHistoryLimit={setMaxHistoryLimit}
               />
 
               <div className="flex-1 relative flex min-w-0 overflow-hidden" ref={containerRef}>
@@ -620,7 +708,18 @@ function App() {
                     saoIntensity={saoIntensity}
                     saoScale={saoScale}
                     bumpScale={bumpScale}
+                    maxHistoryLimit={maxHistoryLimit}
+                    aoType={aoType}
+                    aoQuality={aoQuality}
                   />
+
+                  {brushSettings.symmetryMode === 'radial' && brushSettings.symmetryAxis === 'view' && (
+                    <div className="absolute top-1/2 left-1/2 w-[18px] h-[18px] -translate-x-1/2 -translate-y-1/2 pointer-events-none z-50 flex items-center justify-center mix-blend-difference">
+                       <div className="absolute w-full h-[1px] bg-red-500/80" />
+                       <div className="absolute h-full w-[1px] bg-red-500/80" />
+                       <div className="absolute w-1 h-1 rounded-full bg-red-500 shadow-[0_0_4px_rgba(239,68,68,1)]" />
+                    </div>
+                  )}
                 </div>
 
                 {showUVPanel && (

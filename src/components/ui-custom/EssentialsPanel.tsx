@@ -13,12 +13,6 @@ export const EssentialsPanel: React.FC<EssentialsPanelProps> = ({
   brushSettings,
   onBrushSettingsChange,
 }) => {
-  // Temporary fix: Reset symmetry if it was set to radial while we have it locked
-  React.useEffect(() => {
-    if (brushSettings.symmetryMode === 'radial') {
-      onBrushSettingsChange({ ...brushSettings, symmetryMode: 'none' });
-    }
-  }, [brushSettings.symmetryMode, onBrushSettingsChange, brushSettings]);
 
   return (
     <div className="space-y-6">
@@ -43,7 +37,7 @@ export const EssentialsPanel: React.FC<EssentialsPanelProps> = ({
               value={[brushSettings.lazyRadius || 0.1]}
               onValueChange={([val]) => onBrushSettingsChange({ ...brushSettings, lazyRadius: val })}
               min={0.01}
-              max={1.0}
+              max={0.3}
               step={0.01}
             />
           </div>
@@ -55,22 +49,23 @@ export const EssentialsPanel: React.FC<EssentialsPanelProps> = ({
         
         <div className="grid grid-cols-3 gap-2">
           {(['none', 'mirror', 'radial'] as const).map((mode) => {
-            const isDisabled = mode === 'radial';
             return (
               <button
                 key={mode}
-                disabled={isDisabled}
-                onClick={() => !isDisabled && onBrushSettingsChange({ ...brushSettings, symmetryMode: mode })}
+                onClick={() => {
+                  let newSettings = { ...brushSettings, symmetryMode: mode };
+                  if (mode === 'mirror' && (brushSettings.symmetryAxis === 'view' || brushSettings.symmetryAxis === 'cursor')) {
+                     newSettings.symmetryAxis = 'x';
+                  }
+                  onBrushSettingsChange(newSettings);
+                }}
                 className={`py-2 text-[10px] rounded border transition-all ${
                   brushSettings.symmetryMode === mode 
                   ? 'bg-zinc-800 border-white text-white' 
-                  : isDisabled
-                  ? 'bg-zinc-950 border-white/5 text-zinc-700 cursor-not-allowed grayscale'
                   : 'bg-zinc-900 border-white/5 text-zinc-500 hover:border-white/20'
                 }`}
               >
                 {mode.toUpperCase()}
-                {isDisabled && <span className="block text-[8px] opacity-50">(Lock)</span>}
               </button>
             );
           })}
@@ -80,12 +75,12 @@ export const EssentialsPanel: React.FC<EssentialsPanelProps> = ({
           <>
             <div className="space-y-2">
               <Label className="text-zinc-400 text-xs">Eixo</Label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['x', 'y', 'z'] as const).map((axis) => (
+              <div className="flex flex-wrap gap-2">
+                {(['x', 'y', 'z', 'view', 'cursor'] as const).filter(axis => brushSettings.symmetryMode === 'radial' ? true : (axis === 'x' || axis === 'y' || axis === 'z')).map((axis) => (
                   <button
                     key={axis}
                     onClick={() => onBrushSettingsChange({ ...brushSettings, symmetryAxis: axis })}
-                    className={`py-1.5 text-[10px] rounded border transition-all ${
+                    className={`px-3 py-1.5 text-[10px] flex-1 rounded border transition-all ${
                       brushSettings.symmetryAxis === axis 
                       ? 'bg-zinc-800 border-white text-white' 
                       : 'bg-zinc-900 border-white/5 text-zinc-500 hover:border-white/20'

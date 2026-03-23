@@ -6,20 +6,22 @@ import { useWebGLPaint } from '@/hooks/useWebGLPaint';
 import type { BrushSettings } from '@/hooks/useWebGLPaint';
 import type { OverlayData } from '@/components/ui-custom/OverlayManager';
 
-import grayClay from '@/matcap/gray_clay_010001.png';
-import lightGrey from '@/matcap/light_grey_010001.png';
-import merge1 from '@/matcap/merge0001.png';
-import merge2 from '@/matcap/merge0002.png';
-import warmClay from '@/matcap/warm_clay_010001.png';
 import softlightGrey from '@/matcap/softlight_grey.png';
+import greyMat from '@/matcap/grey.png';
+import darkGreyMat from '@/matcap/dark_grey.png';
+import lighterGreyMat from '@/matcap/lighter_grey.png';
+import lighterWhiteMat from '@/matcap/lighter_white.png';
+import redClayMat from '@/matcap/red_clay.png';
+import softClayMat from '@/matcap/soft_clay.png';
 
 const MATCAPS_URLS: Record<string, string> = {
-  'gray_clay_010001.png': grayClay,
-  'light_grey_010001.png': lightGrey,
-  'merge0001.png': merge1,
-  'merge0002.png': merge2,
-  'warm_clay_010001.png': warmClay,
   'softlight_grey.png': softlightGrey,
+  'grey.png': greyMat,
+  'dark_grey.png': darkGreyMat,
+  'lighter_grey.png': lighterGreyMat,
+  'lighter_white.png': lighterWhiteMat,
+  'red_clay.png': redClayMat,
+  'soft_clay.png': softClayMat,
 };
 
 export interface GradientSession {
@@ -58,6 +60,7 @@ interface PaintableMeshProps {
   // New Gradient Props
   gradientSession?: GradientSession | null;
   setGradientSession?: React.Dispatch<React.SetStateAction<GradientSession | null>>;
+  maxHistoryLimit?: number;
 }
 
 export const PaintableMesh: React.FC<PaintableMeshProps> = ({
@@ -83,6 +86,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   // New Gradient Props
   gradientSession,
   setGradientSession,
+  maxHistoryLimit = 20,
 }) => {
   const groupRef = useRef<THREE.Group>(null);
   const { camera, gl, size } = useThree();
@@ -94,9 +98,11 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
   const symmetryGroupRef = useRef<THREE.Group>(null);
   const lazyGroupRef = useRef<THREE.Group>(null);
   const lazyLineRef = useRef<any>(null);
+  const symmetryCenterIndicatorRef = useRef<THREE.Group>(null);
+  const cursorSymmetryRef = useRef<{origin: THREE.Vector3, axis: THREE.Vector3} | null>(null);
   
   const { 
-    initPaintSystem, startPainting, paint, stopPainting,
+    initPaintSystem, startPainting, paint, stopPainting, lockSymmetryCursor,
     texture, pbrTextures, previewCanvas,
     layers, activeLayerId, addLayer, addFolder, removeLayer, updateLayer, setLayerActive, moveLayer, reorderLayer, clearCanvas, fillCanvas, undo, redo, exportTexture, sampleColor,
     createLayerMask, deleteLayerMask, toggleLayerMask, setEditingMask,
@@ -111,7 +117,8 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     brushSettings,
     [modelParts],
     activeStencil,
-    onColorPainted
+    onColorPainted,
+    maxHistoryLimit
   );
 
   const [loadingProgress, setLoadingProgress] = useState({ matcap: 0, layers: 0 });
@@ -180,45 +187,61 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
     }
   }, [matcapName]);
 
-  // Update material when texture or material props change
-  useEffect(() => {
-    if (groupRef.current) {
-      const newMaterial = (matcapName && matcapTexture)
-        ? new THREE.MeshMatcapMaterial({ 
-            matcap: matcapTexture, 
-            map: pbrTextures.albedo || texture || null, 
-            flatShading, 
-            color: objectColor,
-            transparent: true,
-            depthWrite: true,
-            alphaTest: 0.001
-          })
-        : new THREE.MeshStandardMaterial({ 
-            map: pbrTextures.albedo || texture || null, 
-            metalnessMap: pbrTextures.metalness || null,
-            roughnessMap: pbrTextures.roughness || null,
-            emissiveMap: pbrTextures.emissive || null,
-            alphaMap: pbrTextures.alpha || null,
-            bumpMap: (pbrTextures as any).bump || null,
-            bumpScale: (pbrTextures as any).bump ? bumpScale : 0,
-            emissive: new THREE.Color(0xffffff), // Emissive color is controlled by the map
-            emissiveIntensity: pbrTextures.emissive ? 1.0 : 0.0,
-            roughness: pbrTextures.roughness ? 1.0 : roughness, 
-            metalness: pbrTextures.metalness ? 1.0 : metalness, 
-            flatShading, 
-            color: objectColor,
-            transparent: true,
-            depthWrite: true,
-            alphaTest: 0.001
-          });
+  // Memoize material instance to avoid constant re-compilation
+  const material = React.useMemo(() => {
+    const isMatcap = !!(matcapName && matcapTexture);
+    if (isMatcap) {
+      return new THREE.MeshMatcapMaterial({
+        transparent: true,
+        depthWrite: true,
+        alphaTest: 0.001
+      });
+    } else {
+      return new THREE.MeshStandardMaterial({
+        transparent: true,
+        depthWrite: true,
+        alphaTest: 0.001
+      });
+    }
+  }, [!!(matcapName && matcapTexture)]);
 
+  // Update material properties without re-creating the whole object
+  useEffect(() => {
+    if (!material) return;
+
+    if (material instanceof THREE.MeshMatcapMaterial) {
+      material.matcap = matcapTexture!;
+      material.map = pbrTextures.albedo || texture || null;
+      material.flatShading = flatShading;
+      material.color.set(objectColor);
+    } else if (material instanceof THREE.MeshStandardMaterial) {
+      material.map = pbrTextures.albedo || texture || null;
+      material.metalnessMap = pbrTextures.metalness || null;
+      material.roughnessMap = pbrTextures.roughness || null;
+      material.emissiveMap = pbrTextures.emissive || null;
+      material.alphaMap = pbrTextures.alpha || null;
+      (material as any).bumpMap = (pbrTextures as any).bump || null;
+      (material as any).bumpScale = (pbrTextures as any).bump ? bumpScale : 0;
+      
+      material.emissive.set(0xffffff);
+      material.emissiveIntensity = pbrTextures.emissive ? 1.0 : 0.0;
+      material.roughness = pbrTextures.roughness ? 1.0 : roughness;
+      material.metalness = pbrTextures.metalness ? 1.0 : metalness;
+      material.flatShading = flatShading;
+      material.color.set(objectColor);
+    }
+    
+    material.needsUpdate = true;
+
+    // Apply to all meshes
+    if (groupRef.current) {
       groupRef.current.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          child.material = newMaterial;
+          child.material = material;
         }
       });
     }
-  }, [texture, pbrTextures, flatShading, matcapName, matcapTexture, objectColor, roughness, metalness, bumpScale]);
+  }, [material, texture, pbrTextures, flatShading, matcapTexture, objectColor, roughness, metalness, bumpScale]);
 
   const updateCursor = useCallback((hit: THREE.Intersection | undefined, pressure: number = 1.0, forceIsPainting?: boolean) => {
     const group = cursorGroupRef.current;
@@ -260,49 +283,143 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
         symGroup.children.forEach(c => c.visible = false);
         
         if (brushSettings.symmetryMode && brushSettings.symmetryMode !== 'none' && groupRef.current) {
+          symGroup.visible = true;
           const mode = brushSettings.symmetryMode;
           const axis = brushSettings.symmetryAxis || 'x';
           const points = brushSettings.radialPoints || 4;
           
+          const snapSymmetryPoint = (theoreticalPos: THREE.Vector3, theoreticalNormal: THREE.Vector3, objectRoot: THREE.Object3D) => {
+              const symRaycaster = new THREE.Raycaster();
+              const rayOrigin = theoreticalPos.clone().addScaledVector(theoreticalNormal, 5.0);
+              const rayDir = theoreticalNormal.clone().negate();
+              symRaycaster.set(rayOrigin, rayDir);
+              const hits = symRaycaster.intersectObject(objectRoot, true);
+              if (hits.length > 0 && hits[0].face) {
+                  let snappedNorm = hits[0].face.normal.clone();
+                  if (hits[0].object) snappedNorm.transformDirection(hits[0].object.matrixWorld).normalize();
+                  return { pos: hits[0].point, norm: snappedNorm, hit: true };
+              }
+              return { pos: theoreticalPos, norm: theoreticalNormal, hit: false };
+          };
+
+          // Ensure matrices are up to date
+          groupRef.current.updateWorldMatrix(true, false);
+          
+          // Calculate custom axis and origin for 'view' mode or standard modes
+          let localOrigin = groupRef.current.worldToLocal(hit.point.clone());
+          const invMatrix = groupRef.current.matrixWorld.clone().invert();
+          let localNormalOrigin = normal.clone().transformDirection(invMatrix);
+          
+          let rotateAxis = new THREE.Vector3(
+            axis === 'x' ? 1 : 0,
+            axis === 'y' ? 1 : 0,
+            axis === 'z' ? 1 : 0
+          );
+
+          let showSymmetryCenter = false;
+
+          if (axis === 'view') {
+            const screenRay = new THREE.Raycaster();
+            screenRay.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const hits = screenRay.intersectObject(groupRef.current, true);
+            if (hits.length > 0) {
+               localOrigin = groupRef.current.worldToLocal(hits[0].point.clone());
+               const viewNormal = hits[0].face?.normal?.clone() || camera.getWorldDirection(new THREE.Vector3()).negate();
+               if (hits[0].face && hits[0].object) {
+                  viewNormal.transformDirection(hits[0].object.matrixWorld).normalize();
+               }
+               rotateAxis = viewNormal.transformDirection(invMatrix).normalize();
+            } else {
+               rotateAxis = normal.clone().transformDirection(invMatrix).normalize();
+            }
+            showSymmetryCenter = true;
+          } else if (axis === 'cursor') {
+            const isActuallyPainting = forceIsPainting !== undefined ? forceIsPainting : internalIsPainting;
+            if (isActuallyPainting) {
+                if (!cursorSymmetryRef.current) {
+                    cursorSymmetryRef.current = {
+                        origin: groupRef.current.worldToLocal(hit.point.clone()),
+                        axis: normal.clone().transformDirection(invMatrix).normalize()
+                    };
+                }
+                localOrigin = cursorSymmetryRef.current.origin.clone();
+                rotateAxis = cursorSymmetryRef.current.axis.clone();
+                showSymmetryCenter = true;
+            } else {
+                cursorSymmetryRef.current = null;
+            }
+          }
+
+          if (symmetryCenterIndicatorRef.current && (mode === 'radial' || mode === 'mirror')) {
+              if (showSymmetryCenter) {
+                  symmetryCenterIndicatorRef.current.visible = true;
+                  symmetryCenterIndicatorRef.current.position.copy(groupRef.current.localToWorld(localOrigin.clone()));
+                  symmetryCenterIndicatorRef.current.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), rotateAxis.clone().transformDirection(groupRef.current.matrixWorld).normalize());
+                  symmetryCenterIndicatorRef.current.scale.set(radius, radius, 1);
+              } else {
+                  symmetryCenterIndicatorRef.current.visible = false;
+              }
+          }
+
           if (mode === 'mirror') {
+             // Perform symmetry exactly in the model's local coordinate space
              const localPos = groupRef.current.worldToLocal(hit.point.clone());
-             const localNorm = normal.clone();
+             const localNorm = normal.clone().transformDirection(invMatrix);
+             
              if (axis === 'x') { localPos.x *= -1; localNorm.x *= -1; }
              else if (axis === 'y') { localPos.y *= -1; localNorm.y *= -1; }
              else if (axis === 'z') { localPos.z *= -1; localNorm.z *= -1; }
+             else if (axis === 'view') {
+                 const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(rotateAxis, localOrigin);
+                 const dist = plane.distanceToPoint(localPos);
+                 localPos.addScaledVector(rotateAxis, -2 * dist);
+                 localNorm.reflect(rotateAxis).normalize();
+             }
              
+             // Convert back to world space
+             let mirroredWorldPos = groupRef.current.localToWorld(localPos);
+             let mirroredWorldNormal = localNorm.transformDirection(groupRef.current.matrixWorld).normalize();
+             
+             const snapped = snapSymmetryPoint(mirroredWorldPos, mirroredWorldNormal, groupRef.current);
+             if (snapped.hit) {
+               mirroredWorldPos = snapped.pos;
+               mirroredWorldNormal = snapped.norm;
+             }
+
              const symChild = symGroup.children[0] as THREE.Group;
              if (symChild) {
                symChild.visible = true;
-               symChild.position.copy(groupRef.current.localToWorld(localPos)).sub(hit.point);
-               symChild.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), localNorm.normalize()).premultiply(group.quaternion.clone().invert());
+               symChild.position.copy(mirroredWorldPos);
+               symChild.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), mirroredWorldNormal);
                symChild.scale.set(radius, radius, 1);
              }
           } else if (mode === 'radial') {
              const angleStep = (Math.PI * 2) / points;
-             const localOrigin = groupRef.current.worldToLocal(hit.point.clone());
-             
+
              for (let i = 1; i < points; i++) {
-               const localPos = localOrigin.clone();
-               const localNorm = normal.clone();
                const theta = angleStep * i;
                
-               if (axis === 'y') {
-                 localPos.set(localOrigin.x * Math.cos(theta) - localOrigin.z * Math.sin(theta), localOrigin.y, localOrigin.x * Math.sin(theta) + localOrigin.z * Math.cos(theta));
-                 localNorm.set(normal.x * Math.cos(theta) - normal.z * Math.sin(theta), normal.y, normal.x * Math.sin(theta) + normal.z * Math.cos(theta));
-               } else if (axis === 'x') {
-                 localPos.set(localOrigin.x, localOrigin.y * Math.cos(theta) - localOrigin.z * Math.sin(theta), localOrigin.y * Math.sin(theta) + localOrigin.z * Math.cos(theta));
-                 localNorm.set(normal.x, normal.y * Math.cos(theta) - normal.z * Math.sin(theta), normal.y * Math.sin(theta) + normal.z * Math.cos(theta));
-               } else if (axis === 'z') {
-                 localPos.set(localOrigin.x * Math.cos(theta) - localOrigin.y * Math.sin(theta), localOrigin.x * Math.sin(theta) + localOrigin.y * Math.cos(theta), localOrigin.z);
-                 localNorm.set(normal.x * Math.cos(theta) - normal.y * Math.sin(theta), normal.x * Math.sin(theta) + normal.y * Math.cos(theta), normal.z);
+               // To rotate around an arbitrary origin, we shift, rotate, and shift back
+               const shiftedPos = groupRef.current.worldToLocal(hit.point.clone()).sub(localOrigin);
+               shiftedPos.applyAxisAngle(rotateAxis, theta);
+               const localPos = shiftedPos.add(localOrigin);
+               
+               const localNorm = localNormalOrigin.clone().applyAxisAngle(rotateAxis, theta);
+               
+               let worldNorm = localNorm.transformDirection(groupRef.current.matrixWorld).normalize();
+               let worldPos = groupRef.current.localToWorld(localPos);
+               
+               const snapped = snapSymmetryPoint(worldPos, worldNorm, groupRef.current);
+               if (snapped.hit) {
+                 worldPos = snapped.pos;
+                 worldNorm = snapped.norm;
                }
 
                const symChild = symGroup.children[i-1] as THREE.Group;
                if (symChild) {
                  symChild.visible = true;
-                 symChild.position.copy(groupRef.current.localToWorld(localPos)).sub(hit.point);
-                 symChild.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), localNorm.normalize()).premultiply(group.quaternion.clone().invert());
+                 symChild.position.copy(worldPos);
+                 symChild.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), worldNorm);
                  symChild.scale.set(radius, radius, 1);
                }
              }
@@ -318,8 +435,9 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
           lazyGroup.visible = true;
           lazyGroup.position.copy(lazyPoint).sub(hit.point);
           lazyGroup.scale.set(radius, radius, 1);
-          if (lazyLineRef.current) {
-             lazyLineRef.current.setPoints([new THREE.Vector3(0,0,0), lazyGroup.position.clone().negate()]);
+          if (lazyLineRef.current && lazyLineRef.current.geometry) {
+             const end = lazyGroup.position.clone().negate();
+             lazyLineRef.current.geometry.setPositions([0,0,0, end.x, end.y, end.z]);
           }
         } else {
           lazyGroup.visible = false;
@@ -328,6 +446,8 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
 
     } else {
       group.visible = false;
+      if (symmetryGroupRef.current) symmetryGroupRef.current.visible = false;
+      if (symmetryCenterIndicatorRef.current) symmetryCenterIndicatorRef.current.visible = false;
     }
   }, [camera, brushSettings.size, brushSettings.lazyMouse, brushSettings.symmetryMode, brushSettings.symmetryAxis, brushSettings.radialPoints, size.height, lazyPoint, internalIsPainting, isVisible]);
 
@@ -418,9 +538,33 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       if (pressure === 0 && nativeEvent.pointerType === 'pen') pressure = 0.5;
       if (pressure === 0 && nativeEvent.pointerType !== 'pen') pressure = 1.0;
       
+      if (brushSettings.symmetryMode && brushSettings.symmetryMode !== 'none' && brushSettings.symmetryAxis === 'cursor') {
+         let normal = hit.face?.normal?.clone() || new THREE.Vector3(0, 1, 0);
+         if (hit.object && hit.face) {
+             normal.transformDirection(hit.object.matrixWorld).normalize();
+         }
+         lockSymmetryCursor(hit.point, normal);
+         
+         if (!cursorSymmetryRef.current && groupRef.current) {
+             const invMatrix = groupRef.current.matrixWorld.clone().invert();
+             cursorSymmetryRef.current = {
+                 origin: groupRef.current.worldToLocal(hit.point.clone()),
+                 axis: normal.clone().transformDirection(invMatrix).normalize()
+             };
+         }
+      }
+
       onPaintingChange?.(true);
       setInternalIsPainting(true);
+
       startPainting(hit, pressure);
+
+      // Force immediate paint stroke ONLY IF lazyMouse is OFF 
+      // This allows single clicks to leave an ink dot without dragging.
+      if (!brushSettings.lazyMouse) {
+         paint(hit, pressure);
+      }
+
       updateCursor(hit, pressure, true);
       gl.domElement.setPointerCapture(nativeEvent.pointerId);
     },
@@ -519,14 +663,15 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       const intersect = new THREE.Vector3();
       if (raycaster.ray.intersectPlane(plane, intersect)) {
         const point = intersect.clone();
-        setGradientSession(prev => {
+        setGradientSession?.(prev => {
           if (!prev) return null;
           const newSession = { ...prev, end: point, mid: new THREE.Vector3().lerpVectors(prev.start, point, 0.5) };
-          previewGradient(newSession.start, newSession.end);
+          previewGradient?.(newSession.start, newSession.end);
           return newSession;
         });
       }
     };
+
 
     const onGlobalPointerUp = (e: PointerEvent) => {
       if ((brushSettings.mode as any) === 'gradient') {
@@ -646,24 +791,54 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
       </group>
 
       {isVisible && brushSettings.mode !== 'gradient' && (
-        <group ref={cursorGroupRef} visible={false}>
-          {/* Main Cursor Ring */}
-          <mesh ref={cursorRingRef}>
-            <ringGeometry args={[0.95, 1, 32]} />
-            <meshBasicMaterial 
-              color={brushSettings.color} 
-              opacity={0.6} 
-              transparent 
-              depthTest={false} 
-              depthWrite={false} 
-              side={THREE.DoubleSide} 
-            />
-          </mesh>
+        <>
+          <group ref={cursorGroupRef} visible={false} renderOrder={999}>
+            {/* Main Cursor Ring */}
+            <mesh ref={cursorRingRef} scale={[0, 0, 0]}>
+              <ringGeometry args={[0.95, 1, 32]} />
+              <meshBasicMaterial 
+                color={brushSettings.color} 
+                opacity={0.6} 
+                transparent 
+                depthTest={false} 
+                depthWrite={false} 
+                side={THREE.DoubleSide} 
+              />
+            </mesh>
 
-          {/* Symmetry Cursors Pool (32 max) */}
-          <group ref={symmetryGroupRef}>
+            {/* Lazy Mouse Cursor */}
+            <group ref={lazyGroupRef} visible={false}>
+               <mesh>
+                  <ringGeometry args={[0.45, 0.5, 16]} />
+                  <meshBasicMaterial color="#ffffff" opacity={0.6} transparent depthTest={false} />
+               </mesh>
+               <Line 
+                  ref={lazyLineRef}
+                  points={[new THREE.Vector3(0,0,0), new THREE.Vector3(0.01, 0.01, 0.01)]} 
+                  color="#ffffff" 
+                  lineWidth={1} 
+                  transparent 
+                  opacity={0.3} 
+                  depthTest={false}
+               />
+            </group>
+            {/* Symmetry Center Indicator (Red Dot/Crosshair) */}
+            <group ref={symmetryCenterIndicatorRef} visible={false} renderOrder={999}>
+               <mesh>
+                  <ringGeometry args={[0.08, 0.12, 16]} />
+                  <meshBasicMaterial color="#ef4444" opacity={0.6} transparent depthTest={false} />
+               </mesh>
+               <mesh>
+                  <circleGeometry args={[0.04, 16]} />
+                  <meshBasicMaterial color="#ef4444" opacity={0.8} transparent depthTest={false} />
+               </mesh>
+            </group>
+          </group>
+
+          {/* Symmetry Cursors Pool (32 max) - Moved OUTSIDE cursorGroupRef to stay in world coordinates */}
+          <group ref={symmetryGroupRef} visible={false} renderOrder={999}>
             {Array.from({ length: 32 }).map((_, i) => (
-               <group key={i} visible={false}>
+               <group key={i} visible={false} scale={[0, 0, 0]}>
                  <mesh>
                    <ringGeometry args={[0.95, 1, 32]} />
                    <meshBasicMaterial 
@@ -689,24 +864,7 @@ export const PaintableMesh: React.FC<PaintableMeshProps> = ({
                </group>
             ))}
           </group>
-
-          {/* Lazy Mouse Cursor */}
-          <group ref={lazyGroupRef} visible={false}>
-             <mesh>
-                <ringGeometry args={[0.45, 0.5, 16]} />
-                <meshBasicMaterial color="#ffffff" opacity={0.6} transparent depthTest={false} />
-             </mesh>
-             <Line 
-                ref={lazyLineRef}
-                points={[new THREE.Vector3(0,0,0), new THREE.Vector3(0.01, 0.01, 0.01)]} 
-                color="#ffffff" 
-                lineWidth={1} 
-                transparent 
-                opacity={0.3} 
-                depthTest={false}
-             />
-          </group>
-        </group>
+        </>
       )}
 
       {(brushSettings.mode as any) === 'gradient' && gradientSession && gradientSession.isCreating && (
